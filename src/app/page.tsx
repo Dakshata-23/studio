@@ -415,7 +415,7 @@ export default function DashboardPage() {
               )}
               Pit Stop Performance
             </TabsTrigger>
-            <TabsTrigger value="pitstop" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Pit Details</TabsTrigger>
+            <TabsTrigger value="pitstop" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Pit Insights</TabsTrigger>
             <TabsTrigger value="competitor" className="text-sm md:text-base"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitor AI</TabsTrigger>
             <TabsTrigger value="driverPositions" className="text-sm md:text-base"><Car className="w-4 h-4 mr-2 hidden md:inline" />Driver Positions</TabsTrigger> {/* New Tab Trigger */}
           </TabsList>
