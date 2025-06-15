@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -31,6 +32,7 @@ export async function analyzeCompetitorStrategy(
 
 const prompt = ai.definePrompt({
   name: 'analyzeCompetitorStrategyPrompt',
+  model: 'googleai/gemini-1.5-flash-latest', // Explicitly define the model here
   input: {schema: AnalyzeCompetitorStrategyInputSchema},
   output: {schema: AnalyzeCompetitorStrategyOutputSchema},
   prompt: `You are an expert F1 strategist. Analyze the competitor's strategy based on the following data:

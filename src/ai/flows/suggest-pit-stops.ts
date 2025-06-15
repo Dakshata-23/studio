@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -35,6 +36,7 @@ export async function suggestPitStops(input: SuggestPitStopsInput): Promise<Sugg
 
 const prompt = ai.definePrompt({
   name: 'suggestPitStopsPrompt',
+  model: 'googleai/gemini-1.5-flash-latest', // Explicitly define the model here
   input: {schema: SuggestPitStopsInputSchema},
   output: {schema: SuggestPitStopsOutputSchema},
   prompt: `You are a seasoned Formula 1 race strategist. Analyze the current race conditions and driver data to suggest the optimal pit stop strategy.
