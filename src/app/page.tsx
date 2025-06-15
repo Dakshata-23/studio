@@ -27,6 +27,7 @@ const INITIAL_RACE_DATA: RaceData = {
 };
 
 const MAX_LAP_HISTORY = 20;
+const AI_CALL_TIMEOUT_MS = 10000; // 10 seconds
 
 const TIRE_TYPES: TireType[] = ['Soft', 'Medium', 'Hard'];
 
@@ -216,7 +217,15 @@ export default function DashboardPage() {
     setLastPitStopCallParams(params); 
 
     try {
-      const result = await suggestPitStops(params);
+      const timeoutPromise = new Promise<SuggestPitStopsOutput>((_, reject) => 
+        setTimeout(() => reject(new Error('AI Pit Advisor timed out after 10 seconds.')), AI_CALL_TIMEOUT_MS)
+      );
+
+      const result = await Promise.race([
+        suggestPitStops(params),
+        timeoutPromise
+      ]);
+      
       setPitStopSuggestion(result);
       setLastSuccessfulAiCallData({ lap: currentLapForAdvice, tireWear: currentTireWear, fuel: currentFuelLevel });
     } catch (error) {
@@ -241,7 +250,6 @@ export default function DashboardPage() {
     raceData.weather, 
     toast,
     aiCallCoolDown,
-    // setStates are stable: setLastPitStopCallParams, setIsPitStopLoading, setPitStopSuggestion, setLastSuccessfulAiCallData, setAiCallCoolDown
   ]);
 
   useEffect(() => {
@@ -350,4 +358,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
