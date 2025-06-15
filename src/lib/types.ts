@@ -2,6 +2,14 @@
 export type TireType = 'Soft' | 'Medium' | 'Hard' | 'Intermediate' | 'Wet';
 export type WeatherCondition = 'Sunny' | 'Cloudy' | 'Rainy' | 'Heavy Rain';
 
+export type TirePosition = 'Front Left' | 'Front Right' | 'Rear Left' | 'Rear Right';
+
+export interface DriverInfo {
+  name: string;
+  gap?: string; // e.g., "+1.2s" or "-0.8s"
+  action?: string; // e.g., "Lap", "Defend"
+}
+
 export interface TireStatus {
   type: TireType;
   wear: number; // Percentage 0-100

@@ -8,10 +8,11 @@ import { LiveTelemetry } from '@/components/dashboard/LiveTelemetry';
 import { PitStopPerformancePanel } from '@/components/dashboard/PitStopPerformancePanel';
 import { PitStopAdvisor } from '@/components/ai/PitStopAdvisor';
 import { CompetitorAnalyzer } from '@/components/ai/CompetitorAnalyzer';
+import { DriverPositionsTable } from '@/components/dashboard/DriverPositionsTable'; // New import
 import { DEFAULT_SETTINGS, MOCK_RACE_DATA, DRIVER_COLORS } from '@/lib/constants';
 import type { RaceData, Settings, Driver, OpenF1Driver, TireType, SuggestPitStopsInput, SuggestPitStopsOutput, LapHistoryEntry } from '@/lib/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Brain, Users, MapPinIcon, ListChecks, Loader2, AlertTriangle } from 'lucide-react';
+import { Brain, Users, MapPinIcon, ListChecks, Loader2, AlertTriangle, Car } from 'lucide-react'; // Added Car icon
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { suggestPitStops } from '@/ai/flows/suggest-pit-stops';
 import { useToast } from "@/hooks/use-toast";
@@ -97,7 +98,7 @@ export default function DashboardPage() {
           },
           lastLapTime: null,
           bestLapTime: null,
-          fuel: Math.floor(Math.random() * 30) + 70,
+          fuel: 100, // Fuel should always start at 100%
           pitStops: Math.floor(Math.random() * 2),
           lapHistory: [],
         }));
@@ -127,6 +128,8 @@ export default function DashboardPage() {
 
         let newMainDriver: Driver | null = null;
         const currentLapForHistory = prevData.currentLap;
+        let pitStopExecutedDriverName: string | undefined;
+        let pitStopExecutedNewTireCompound: TireType | undefined;
 
         const updatedDrivers = prevData.drivers.map(driver => {
           const newLapTimeStr = driver.lastLapTime ? `1:${(Math.random() * 10 + 20).toFixed(3).padStart(6, '0')}` : `1:${(Math.random() * 10 + 25).toFixed(3).padStart(6, '0')}`;
@@ -177,12 +180,11 @@ export default function DashboardPage() {
         }
 
         // Check for planned pit stops and execute if current lap matches
+
         const finalDrivers = updatedDrivers.map(driver => {
           if (driver.plannedPitStop && prevData.currentLap + 1 >= driver.plannedPitStop.targetLap) {
-            toast({
-              title: "Pit Stop Executed!",
-              description: `${driver.name} is pitting for ${driver.plannedPitStop.newTireCompound} tires.`,
-            });
+            pitStopExecutedDriverName = driver.name;
+            pitStopExecutedNewTireCompound = driver.plannedPitStop.newTireCompound;
             return {
               ...driver,
               currentTires: {
@@ -197,11 +199,19 @@ export default function DashboardPage() {
           return driver;
         });
 
-        return {
+        const newRaceData = {
           ...prevData,
           drivers: finalDrivers,
           currentLap: Math.min(prevData.totalLaps, prevData.currentLap + 1), // Always increment lap for consistent testing
          };
+
+        if (pitStopExecutedDriverName && pitStopExecutedNewTireCompound) {
+          toast({
+            title: "Pit Stop Executed!",
+            description: `${pitStopExecutedDriverName} is pitting for ${pitStopExecutedNewTireCompound} tires.`,
+          });
+        }
+        return newRaceData;
       });
     }, 5000);
 
@@ -308,23 +318,35 @@ export default function DashboardPage() {
     // Calculate the target lap for the pit stop
     const targetPitStopLap = raceData.currentLap + laps;
 
+
     setRaceData(prevData => {
       const updatedDrivers = prevData.drivers.map(driver => {
         if (driver.id === mainDriver.id) {
-          const updatedMainDriver = {
+          return {
             ...driver,
             plannedPitStop: {
               targetLap: targetPitStopLap,
               newTireCompound: compound,
             },
           };
-          // Immediately update mainDriver state
-          setMainDriver(updatedMainDriver);
-          return updatedMainDriver;
         }
         return driver;
       });
       return { ...prevData, drivers: updatedDrivers };
+    });
+
+    // Update mainDriver state separately after setRaceData
+    setMainDriver(prevMainDriver => {
+      if (prevMainDriver && prevMainDriver.id === mainDriver.id) {
+        return {
+          ...prevMainDriver,
+          plannedPitStop: {
+            targetLap: targetPitStopLap,
+            newTireCompound: compound,
+          },
+        };
+      }
+      return prevMainDriver;
     });
 
     toast({
@@ -349,7 +371,7 @@ export default function DashboardPage() {
       });
       return { ...prevData, drivers: updatedDrivers };
     });
-    // Also update mainDriver state immediately after canceling
+    // Update mainDriver state separately after setRaceData
     setMainDriver(prevMainDriver => {
       if (prevMainDriver && prevMainDriver.id === mainDriver.id) {
         return { ...prevMainDriver, plannedPitStop: undefined };
@@ -385,7 +407,7 @@ export default function DashboardPage() {
         )}
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 mb-6"> {/* Changed grid-cols-4 to grid-cols-5 */}
             <TabsTrigger value="overview" className="text-sm md:text-base"><ListChecks className="w-4 h-4 mr-2 hidden md:inline" />Telemetry & AI</TabsTrigger>
             <TabsTrigger value="pitStopPerformance" className="text-sm md:text-base relative">
               {showPitStopWarning && (
@@ -395,6 +417,7 @@ export default function DashboardPage() {
             </TabsTrigger>
             <TabsTrigger value="pitstop" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Pit Details</TabsTrigger>
             <TabsTrigger value="competitor" className="text-sm md:text-base"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitor AI</TabsTrigger>
+            <TabsTrigger value="driverPositions" className="text-sm md:text-base"><Car className="w-4 h-4 mr-2 hidden md:inline" />Driver Positions</TabsTrigger> {/* New Tab Trigger */}
           </TabsList>
           
           {mainDriver && (
@@ -448,6 +471,14 @@ export default function DashboardPage() {
               <CompetitorAnalyzer allDrivers={raceData.drivers} mainDriver={mainDriver} />
             ) : (
               !driverLoadError && <p className="text-center text-muted-foreground p-8">Competitor analyzer unavailable without driver data.</p>
+            )}
+          </TabsContent>
+          {/* New TabsContent for Driver Positions */}
+          <TabsContent value="driverPositions">
+            {raceData.drivers.length > 0 ? (
+              <DriverPositionsTable drivers={raceData.drivers} />
+            ) : (
+              !driverLoadError && <p className="text-center text-muted-foreground p-8">Driver positions unavailable without driver data.</p>
             )}
           </TabsContent>
         </Tabs>

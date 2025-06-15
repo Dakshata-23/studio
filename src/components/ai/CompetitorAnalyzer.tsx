@@ -2,97 +2,107 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useForm, SubmitHandler } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { analyzeCompetitorStrategy, AnalyzeCompetitorStrategyInput, AnalyzeCompetitorStrategyOutput } from '@/ai/flows/analyze-competitor-strategy';
+import { analyzeCompetitorStrategy, AnalyzeCompetitorStrategyOutput } from '@/ai/flows/analyze-competitor-strategy';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Sparkles, Users, Loader2 } from 'lucide-react';
 import type { Driver } from '@/lib/types';
 
 
-const AnalyzeCompetitorStrategyClientSchema = z.object({
-  competitorName: z.string().min(1, "Competitor name is required."),
-  historicalData: z.string().min(1, "Historical data summary is required."),
-  currentRaceData: z.string().min(1, "Current race data summary is required."),
-});
-
 interface CompetitorAnalyzerProps {
-  allDrivers: Driver[]; 
+  allDrivers: Driver[];
   mainDriver: Driver | null;
 }
 
 export function CompetitorAnalyzer({ allDrivers, mainDriver }: CompetitorAnalyzerProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [analysis, setAnalysis] = useState<AnalyzeCompetitorStrategyOutput | null>(null);
+  const [analyses, setAnalyses] = useState<AnalyzeCompetitorStrategyOutput[]>([]); // Changed to array
   const { toast } = useToast();
 
-  const form = useForm<AnalyzeCompetitorStrategyInput>({
-    resolver: zodResolver(AnalyzeCompetitorStrategyClientSchema),
-    defaultValues: {
-      competitorName: "",
-      historicalData: 'Historically aggressive on tire usage, tends to pit early.',
-      currentRaceData: 'Currently on Medium tires, 10 laps old, running P3.',
-    },
-  });
-  
-  const competitorOptions = allDrivers.filter(d => !mainDriver || d.id !== mainDriver.id);
+  // Function to analyze a single driver
+  const analyzeDriver = async (competitorDriver: Driver, isDriverInFront: boolean) => {
+    const sortedDrivers = [...allDrivers].sort((a, b) => a.position - b.position);
+    const competitorIndex = sortedDrivers.findIndex(d => d.id === competitorDriver.id);
 
-  useEffect(() => {
-    const currentFormValues = form.getValues();
-    let defaultCompetitorName = currentFormValues.competitorName;
-
-    // If no competitor is selected, or selected competitor is now the mainDriver, pick a new default
-    if ((!defaultCompetitorName || (mainDriver && defaultCompetitorName === mainDriver.name)) && competitorOptions.length > 0) {
-      // Try to pick the driver in P2 or the first available competitor
-      const p2Competitor = competitorOptions.find(d => d.position === 2 && (!mainDriver || d.id !== mainDriver.id));
-      if (p2Competitor) {
-        defaultCompetitorName = p2Competitor.name;
-      } else {
-         defaultCompetitorName = competitorOptions[0].name;
-      }
-    } else if (competitorOptions.length === 0) {
-        defaultCompetitorName = ""; // No other competitors
+    let driverInFrontInfo = '';
+    if (competitorIndex > 0) {
+      const driverInFront = sortedDrivers[competitorIndex - 1];
+      driverInFrontInfo = `Driver in front: ${driverInFront.name} (P${driverInFront.position}).`;
     }
-    
 
-    form.reset({
-      ...currentFormValues,
-      competitorName: defaultCompetitorName,
-      historicalData: (form.formState.dirtyFields.historicalData || !defaultCompetitorName) ? currentFormValues.historicalData : 'Historically aggressive on tire usage, tends to pit early.',
-      currentRaceData: (form.formState.dirtyFields.currentRaceData || !defaultCompetitorName) ? currentFormValues.currentRaceData : 'Currently on Medium tires, 10 laps old, running P3.',
-    });
+    let driverInBackInfo = '';
+    if (competitorIndex < sortedDrivers.length - 1) {
+      const driverInBack = sortedDrivers[competitorIndex + 1];
+      driverInBackInfo = `Driver behind: ${driverInBack.name} (P${driverInBack.position}).`;
+    }
 
-  }, [allDrivers, mainDriver, form]);
+    const currentRaceDataEnhanced = `
+      Competitor: ${competitorDriver.name} (P${competitorDriver.position})
+      Tire Type: ${competitorDriver.currentTires.type}
+      Tire Wear: ${competitorDriver.currentTires.wear}%
+      Tire Age: ${competitorDriver.currentTires.ageLaps || 'N/A'} laps
+      ${driverInFrontInfo}
+      ${driverInBackInfo}
+      Additional Race Data: The competitor's current race data is automatically inferred from the track data.
+    `;
 
-
-  const onSubmit: SubmitHandler<AnalyzeCompetitorStrategyInput> = async (data) => {
-    setIsLoading(true);
-    setAnalysis(null);
     try {
-      const result = await analyzeCompetitorStrategy(data);
-      setAnalysis(result);
+      const result = await analyzeCompetitorStrategy({
+        competitorName: competitorDriver.name,
+        historicalData: 'Historically aggressive on tire usage, tends to pit early.', // Hardcoded historical data
+        currentRaceData: currentRaceDataEnhanced,
+      });
+      return result;
     } catch (error) {
-      console.error("Error analyzing competitor strategy:", error);
+      console.error(`Error analyzing ${competitorDriver.name}'s strategy:`, error);
       toast({
         variant: "destructive",
         title: "AI Error",
-        description: (error as Error).message || "Failed to analyze competitor strategy.",
+        description: (error as Error).message || `Failed to analyze ${competitorDriver.name}'s strategy.`,
       });
-    } finally {
-      setIsLoading(false);
+      return null;
     }
   };
 
-  if (competitorOptions.length === 0 && allDrivers.length > 0) {
-     return (
+  useEffect(() => {
+    const fetchAnalyses = async () => {
+      if (!mainDriver || allDrivers.length === 0) {
+        setAnalyses([]);
+        return;
+      }
+
+      setIsLoading(true);
+      const sortedDrivers = [...allDrivers].sort((a, b) => a.position - b.position);
+      const mainDriverIndex = sortedDrivers.findIndex(d => d.id === mainDriver.id);
+
+      const driversToAnalyze: Driver[] = [];
+      let driverInFront: Driver | undefined;
+      let driverInBack: Driver | undefined;
+
+      if (mainDriverIndex > 0) {
+        driverInFront = sortedDrivers[mainDriverIndex - 1];
+        driversToAnalyze.push(driverInFront);
+      }
+      if (mainDriverIndex < sortedDrivers.length - 1) {
+        driverInBack = sortedDrivers[mainDriverIndex + 1];
+        driversToAnalyze.push(driverInBack);
+      }
+
+      const results = await Promise.all(
+        driversToAnalyze.map(driver => analyzeDriver(driver, driver === driverInFront))
+      );
+
+      setAnalyses(results.filter(Boolean) as AnalyzeCompetitorStrategyOutput[]);
+      setIsLoading(false);
+    };
+
+    fetchAnalyses();
+  }, [allDrivers, mainDriver]);
+
+
+  if (!mainDriver || allDrivers.length === 0) {
+    return (
       <Card className="shadow-lg_">
         <CardHeader>
           <CardTitle className="text-2xl font-headline text-primary flex items-center gap-2">
@@ -100,12 +110,44 @@ export function CompetitorAnalyzer({ allDrivers, mainDriver }: CompetitorAnalyze
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">Only one driver loaded, no other competitors to analyze.</p>
+          <p className="text-muted-foreground">No main driver or race data available to analyze competitors.</p>
         </CardContent>
       </Card>
     );
   }
 
+  if (isLoading) {
+    return (
+      <Card className="shadow-lg_">
+        <CardHeader>
+          <CardTitle className="text-2xl font-headline text-primary flex items-center gap-2">
+            <Users className="w-6 h-6" /> Competitor Strategy Analyzer
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center text-muted-foreground">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            <span>Analyzing competitor strategies...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (analyses.length === 0) {
+    return (
+      <Card className="shadow-lg_">
+        <CardHeader>
+          <CardTitle className="text-2xl font-headline text-primary flex items-center gap-2">
+            <Users className="w-6 h-6" /> Competitor Strategy Analyzer
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">No immediate competitors to analyze (e.g., only one driver or at the start/end of the grid).</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="shadow-lg_">
@@ -113,69 +155,35 @@ export function CompetitorAnalyzer({ allDrivers, mainDriver }: CompetitorAnalyze
         <CardTitle className="text-2xl font-headline text-primary flex items-center gap-2">
           <Users className="w-6 h-6" /> Competitor Strategy Analyzer
         </CardTitle>
-        <CardDescription>Predict likely competitor strategies using AI.</CardDescription>
+        <CardDescription>AI analysis of immediate competitors.</CardDescription>
       </CardHeader>
       <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="competitorName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Competitor Name</FormLabel>
-                  <FormControl>
-                     <select {...field} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
-                      <option value="">Select Competitor</option>
-                      {competitorOptions.map(d => <option key={d.id} value={d.name}>{d.name} (P{d.position})</option>)}
-                     </select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="historicalData"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Historical Data Summary</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="e.g., Prefers one-stop, good tire management." {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="currentRaceData"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Current Race Data Summary</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="e.g., Started on Softs, pitted lap 15 for Hards, currently P2." {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <Button type="submit" disabled={isLoading || !form.getValues().competitorName} className="w-full md:w-auto">
-              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-              Analyze Strategy
-            </Button>
-          </form>
-        </Form>
-
-        {analysis && (
-          <Alert className="mt-6 bg-accent/10 border-accent/50 text-accent-foreground">
+        {analyses.map((analysis, index) => (
+          <Alert key={index} className="mt-6 bg-accent/10 border-accent/50 text-accent-foreground">
             <Sparkles className="h-5 w-5 text-accent" />
-            <AlertTitle className="font-headline text-lg text-accent">AI Analysis</AlertTitle>
+            <AlertTitle className="font-headline text-lg text-accent">AI Analysis for {analysis.driverInFront?.name || analysis.driverInBack?.name || 'Competitor'}</AlertTitle>
             <AlertDescription className="mt-2">
               <p><strong>Strategy Summary:</strong> {analysis.strategySummary}</p>
+              {analysis.tireCompound && <p><strong>Tire Compound:</strong> {analysis.tireCompound}</p>}
+              {analysis.tireAgeLaps && <p><strong>Tire Age:</strong> {analysis.tireAgeLaps} laps</p>}
+              {analysis.tirePosition && <p><strong>Tire Position:</strong> {analysis.tirePosition}</p>}
+              {analysis.driverInFront && (
+                <p>
+                  <strong>Driver In Front:</strong> {analysis.driverInFront.name}
+                  {analysis.driverInFront.gap && ` (Gap: ${analysis.driverInFront.gap})`}
+                  {analysis.driverInFront.action && ` (Action: ${analysis.driverInFront.action})`}
+                </p>
+              )}
+              {analysis.driverInBack && (
+                <p>
+                  <strong>Driver In Back:</strong> {analysis.driverInBack.name}
+                  {analysis.driverInBack.gap && ` (Gap: ${analysis.driverInBack.gap})`}
+                  {analysis.driverInBack.action && ` (Action: ${analysis.driverInBack.action})`}
+                </p>
+              )}
             </AlertDescription>
           </Alert>
-        )}
+        ))}
       </CardContent>
     </Card>
   );
