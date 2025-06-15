@@ -39,7 +39,7 @@ export function LiveTelemetry({ driver, settings, pitStopSuggestion, isPitStopLo
               <Brain className="w-5 h-5" /> AI Pit Stop Advisor
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 min-h-[12rem]"> {/* Added min-h-[12rem] here */}
             {isPitStopLoading && (
               <div className="flex items-center text-muted-foreground">
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
