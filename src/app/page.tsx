@@ -407,17 +407,18 @@ export default function DashboardPage() {
         )}
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 mb-6"> {/* Changed grid-cols-4 to grid-cols-5 */}
-            <TabsTrigger value="overview" className="text-sm md:text-base"><ListChecks className="w-4 h-4 mr-2 hidden md:inline" />Telemetry & AI</TabsTrigger>
-            <TabsTrigger value="pitStopPerformance" className="text-sm md:text-base relative">
+          <TabsList className="flex w-full overflow-x-auto whitespace-nowrap mb-6">
+            <TabsTrigger value="overview" className="text-sm md:text-base flex-shrink-0"><ListChecks className="w-4 h-4 mr-2 hidden md:inline" />Telemetry & AI</TabsTrigger>
+            <TabsTrigger value="pitStopPerformance" className="text-sm md:text-base relative flex-shrink-0">
               {showPitStopWarning && (
                 <AlertTriangle className="h-4 w-4 text-yellow-500 absolute -top-1 -right-1" />
               )}
               Pit Stop Performance
             </TabsTrigger>
-            <TabsTrigger value="pitstop" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Pit Insights</TabsTrigger>
-            <TabsTrigger value="competitor" className="text-sm md:text-base"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitor AI</TabsTrigger>
-            <TabsTrigger value="driverPositions" className="text-sm md:text-base"><Car className="w-4 h-4 mr-2 hidden md:inline" />Driver Positions</TabsTrigger> {/* New Tab Trigger */}
+            <TabsTrigger value="pitstop" className="text-sm md:text-base flex-shrink-0"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Pit Insights</TabsTrigger>
+            <TabsTrigger value="competitor" className="text-sm md:text-base flex-shrink-0"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitor AI</TabsTrigger>
+            <TabsTrigger value="driverPositions" className="text-sm md:text-base flex-shrink-0"><Car className="w-4 h-4 mr-2 hidden md:inline" />Driver Positions</TabsTrigger> {/* New Tab Trigger */}
+            <TabsTrigger value="liveCarDetails" className="text-sm md:text-base flex-shrink-0"><Car className="w-4 h-4 mr-2 hidden md:inline" />Car Analytics</TabsTrigger> {/* New Tab Trigger */}
           </TabsList>
           
           {mainDriver && (
@@ -480,6 +481,17 @@ export default function DashboardPage() {
             ) : (
               !driverLoadError && <p className="text-center text-muted-foreground p-8">Driver positions unavailable without driver data.</p>
             )}
+          </TabsContent>
+          {/* New TabsContent for Live Car Details */}
+          <TabsContent value="liveCarDetails">
+            <div className="relative w-full" style={{ paddingTop: '56.25%' }}> {/* 16:9 Aspect Ratio */}
+              <iframe
+                src="https://race-pulse-telemetry.lovable.app"
+                title="Live Car Details"
+                className="absolute top-0 left-0 w-full h-full border-0 rounded-lg shadow-lg"
+                allowFullScreen
+              ></iframe>
+            </div>
           </TabsContent>
         </Tabs>
       </main>
