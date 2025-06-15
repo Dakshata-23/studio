@@ -1,35 +1,41 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from '@/components/layout/Header';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { LiveTelemetry } from '@/components/dashboard/LiveTelemetry';
 import { InteractiveTrackMap } from '@/components/dashboard/InteractiveTrackMap';
-import { PitStopAdvisor } from '@/components/ai/PitStopAdvisor';
+import { LeMansStrategistDisplay } from '@/components/ai/LeMansStrategistDisplay';
 import { CompetitorAnalyzer } from '@/components/ai/CompetitorAnalyzer';
-import { DEFAULT_SETTINGS, DRIVER_COLORS, FALLBACK_RACE_DATA, OPENF1_API_BASE_URL, TIRE_WEAR_RATES, FUEL_CONSUMPTION_PER_LAP, DEFAULT_TOTAL_LAPS } from '@/lib/constants';
-import type { RaceData, Settings, Driver, OpenF1Driver, TireType, SuggestPitStopsInput, SuggestPitStopsOutput, LapHistoryEntry, OpenF1Session, OpenF1Meeting, OpenF1Lap, OpenF1Position, OpenF1Stint, OpenF1Weather, OpenF1RaceControl, WeatherCondition } from '@/lib/types';
+import { 
+  DEFAULT_SETTINGS, 
+  DRIVER_COLORS, 
+  FALLBACK_RACE_DATA, 
+  TIRE_WEAR_RATES, 
+  FUEL_CONSUMPTION_PER_LAP, 
+  DEFAULT_TOTAL_LAPS,
+  NUM_DRIVERS_PER_TEAM,
+  MAX_DRIVER_DRIVE_TIME_SECONDS,
+  BASE_LAP_TIME_SECONDS,
+  LAP_TIME_VARIATION_SECONDS,
+  PIT_STOP_BASE_DURATION_SECONDS,
+  TIRE_CHANGE_DURATION_SECONDS,
+  RACE_DURATION_SECONDS
+} from '@/lib/constants';
+import type { RaceData, Settings, Driver, LapHistoryEntry, SuggestLeMansStrategyInput, SuggestLeMansStrategyOutput, TireType, WeatherCondition } from '@/lib/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Brain, Users, MapPinIcon, ListChecks, Loader2, AlertTriangle } from 'lucide-react';
+import { Brain, Users, MapPinIcon, ListChecks, Loader2, AlertTriangle, Flag } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { suggestPitStops } from '@/ai/flows/suggest-pit-stops';
+import { suggestLeMansStrategy } from '@/ai/flows/suggest-le-mans-strategy'; // Updated flow import
 import { useToast } from "@/hooks/use-toast";
+import { Button } from '@/components/ui/button';
 
-const INITIAL_RACE_DATA: RaceData = {
-  drivers: [],
-  totalLaps: FALLBACK_RACE_DATA.totalLaps,
-  currentLap: FALLBACK_RACE_DATA.currentLap,
-  trackName: FALLBACK_RACE_DATA.trackName,
-  weather: FALLBACK_RACE_DATA.weather,
-  safetyCar: FALLBACK_RACE_DATA.safetyCar,
-  sessionKey: null,
-  meetingKey: null,
-};
 
-const MAX_LAP_HISTORY = 20;
-const AI_CALL_TIMEOUT_MS = 10000; // 10 seconds
-const API_POLL_INTERVAL_MS = 7000; // Poll API every 7 seconds
+const MAX_LAP_HISTORY = 30; // Show more laps for longer race
+const AI_CALL_TIMEOUT_MS = 20000; // Longer timeout for more complex strategy
+const SIMULATION_INTERVAL_MS = 3000; // Update every 3 seconds for faster sim
+const AI_CALL_INTERVAL_LAPS = 5; // Call AI every 5 simulated laps
 
 const formatSecondsToLapTime = (totalSeconds: number | null): string | null => {
   if (totalSeconds === null || totalSeconds <= 0 || isNaN(totalSeconds)) return null;
@@ -38,14 +44,43 @@ const formatSecondsToLapTime = (totalSeconds: number | null): string | null => {
   return `${minutes}:${seconds.toFixed(3).padStart(6, '0')}`;
 };
 
-const mapApiTireToTireType = (apiTire?: string): TireType => {
-  const lowerApiTire = apiTire?.toLowerCase();
-  if (lowerApiTire?.includes('soft')) return 'Soft';
-  if (lowerApiTire?.includes('medium')) return 'Medium';
-  if (lowerApiTire?.includes('hard')) return 'Hard';
-  if (lowerApiTire?.includes('intermediate')) return 'Intermediate';
-  if (lowerApiTire?.includes('wet')) return 'Wet';
-  return 'Medium'; // Default fallback
+const formatSecondsToHMS = (totalSeconds: number): string => {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+};
+
+
+// Initial setup for "Your Team"
+const initializeTeamDrivers = (): Driver[] => {
+  const teamDrivers: Driver[] = [];
+  for (let i = 0; i < NUM_DRIVERS_PER_TEAM; i++) {
+    teamDrivers.push({
+      id: `driver-${i + 1}`,
+      name: `Driver ${String.fromCharCode(65 + i)} (Your Team)`, // Driver A, Driver B, Driver C
+      shortName: `DR${String.fromCharCode(65 + i)}`,
+      team: 'Your Team Endurance',
+      color: DRIVER_COLORS[i % DRIVER_COLORS.length],
+      driver_number: i + 1,
+      position: i + 1, // Initial simulated position
+      currentTires: { type: 'Medium', wear: 0, ageLaps: 0, stintStartLap: 1 },
+      lastLapTime: null,
+      bestLapTime: null,
+      fuel: 100,
+      pitStops: 0,
+      lapHistory: [],
+      allLapsData: [],
+      totalDriveTimeSeconds: 0,
+      isDriving: i === 0, // First driver starts
+    });
+  }
+  return teamDrivers;
+};
+
+const INITIAL_RACE_DATA: RaceData = {
+  ...FALLBACK_RACE_DATA,
+  drivers: initializeTeamDrivers(),
 };
 
 
@@ -53,346 +88,220 @@ export default function DashboardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [raceData, setRaceData] = useState<RaceData>(INITIAL_RACE_DATA);
-  const [mainDriver, setMainDriver] = useState<Driver | null>(null);
-  const [isLoadingData, setIsLoadingData] = useState(true);
-  const [dataLoadError, setDataLoadError] = useState<string | null>(null);
+  const [teamDrivers, setTeamDrivers] = useState<Driver[]>(raceData.drivers);
+  
+  const [isLoadingApp, setIsLoadingApp] = useState(true); // General app loading
+  const [dataLoadError, setDataLoadError] = useState<string | null>(null); // For any critical errors
 
-  const [pitStopSuggestion, setPitStopSuggestion] = useState<SuggestPitStopsOutput | null>(null);
-  const [isPitStopLoading, setIsPitStopLoading] = useState(false);
-  const [lastPitStopCallParams, setLastPitStopCallParams] = useState<SuggestPitStopsInput | null>(null);
+  const [strategySuggestion, setStrategySuggestion] = useState<SuggestLeMansStrategyOutput | null>(null);
+  const [isStrategistLoading, setIsStrategistLoading] = useState(false);
+  const [lastStrategyCallParams, setLastStrategyCallParams] = useState<SuggestLeMansStrategyInput | null>(null);
   const { toast } = useToast();
+  
+  const raceSimulationRef = useRef<NodeJS.Timeout | null>(null);
+  const lastAiCallLapRef = useRef<number>(0);
 
-  const [lastSuccessfulAiCallData, setLastSuccessfulAiCallData] = useState<{
-    lap: number;
-    tireWear: number;
-    fuel: number;
-  } | null>(null);
-  const [aiCallCoolDown, setAiCallCoolDown] = useState(false);
-
-  // Fetch initial data (session, meeting, drivers)
+  // Effect for initial setup
   useEffect(() => {
-    const fetchInitialData = async () => {
-      setIsLoadingData(true);
-      setDataLoadError(null);
-      try {
-        // 1. Fetch latest session to get session_key and meeting_key
-        const sessionResponse = await fetch(`${OPENF1_API_BASE_URL}/sessions?session_key=latest`);
-        if (!sessionResponse.ok) throw new Error(`Failed to fetch latest session: ${sessionResponse.statusText}`);
-        const sessions: OpenF1Session[] = await sessionResponse.json();
-        if (!sessions || sessions.length === 0) throw new Error('No latest session found.');
-        const latestSession = sessions.find(s => s.session_type === 'Race') || sessions[0]; // Prefer Race session
-        
-        if (!latestSession?.session_key || !latestSession?.meeting_key) {
-            throw new Error('Essential session_key or meeting_key missing from latest session data.');
-        }
-
-        const currentSessionKey = latestSession.session_key;
-        const currentMeetingKey = latestSession.meeting_key;
-        
-        // 2. Fetch meeting details for track name (total laps might not be here)
-        // Total laps is often contextual or fixed per track/event type. OpenF1 might not provide it easily.
-        // We'll use a default or try to infer it if some API gives it.
-        // For now, track name from session or meeting.
-        const trackName = latestSession.circuit_short_name || latestSession.location || FALLBACK_RACE_DATA.trackName;
-        const sessionName = latestSession.session_name;
-        const countryName = latestSession.country_name;
-
-        // 3. Fetch drivers for the session
-        const driversResponse = await fetch(`${OPENF1_API_BASE_URL}/drivers?session_key=${currentSessionKey}`);
-        if (!driversResponse.ok) throw new Error(`Failed to fetch drivers: ${driversResponse.statusText}`);
-        const apiDrivers: OpenF1Driver[] = await driversResponse.json();
-        if (!apiDrivers || apiDrivers.length === 0) throw new Error('No drivers found for the session.');
-
-        const transformedDrivers: Driver[] = apiDrivers.map((apiDriver, index) => ({
-          id: apiDriver.driver_number.toString(),
-          name: apiDriver.full_name || `${apiDriver.first_name || ''} ${apiDriver.last_name || ''}`.trim() || `Driver ${apiDriver.driver_number}`,
-          shortName: apiDriver.name_acronym,
-          team: apiDriver.team_name,
-          color: apiDriver.team_colour ? `#${apiDriver.team_colour}` : DRIVER_COLORS[index % DRIVER_COLORS.length],
-          driver_number: apiDriver.driver_number,
-          position: 0, // Will be updated by polling
-          currentTires: { type: 'Medium', wear: 0, ageLaps: 0 }, // Placeholder, updated by stints
-          lastLapTime: null,
-          bestLapTime: null,
-          fuel: 100, // Initial fuel
-          pitStops: 0,
-          lapHistory: [],
-          allLapsData: [],
-        }));
-
-        setRaceData(prev => ({
-          ...prev,
-          drivers: transformedDrivers,
-          sessionKey: currentSessionKey,
-          meetingKey: currentMeetingKey,
-          trackName,
-          sessionName,
-          countryName,
-          totalLaps: DEFAULT_TOTAL_LAPS, // Using default, API for this is tricky
-        }));
-
-        if (transformedDrivers.length > 0) {
-          // Set main driver to P1 or first driver initially
-          const p1Driver = transformedDrivers.find(d => d.position === 1) || transformedDrivers[0];
-          setMainDriver(p1Driver);
-        }
-
-      } catch (error) {
-        console.error("Error fetching initial data:", error);
-        setDataLoadError((error as Error).message || 'An unknown error occurred during initial data load.');
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
-
-    fetchInitialData();
+    setIsLoadingApp(false); // Sim is ready to start
+    // Potentially load saved state here in a real app
   }, []);
 
-  // Polling for live race data
+  // Main Race Simulation Loop
   useEffect(() => {
-    if (isLoadingData || !raceData.sessionKey) return;
+    if (isLoadingApp) return;
 
-    const fetchDataInterval = setInterval(async () => {
-      if (!raceData.sessionKey) return;
-      
-      try {
-        const [lapsRes, positionsRes, stintsRes, weatherRes, raceControlRes] = await Promise.all([
-          fetch(`${OPENF1_API_BASE_URL}/laps?session_key=${raceData.sessionKey}`),
-          fetch(`${OPENF1_API_BASE_URL}/position?session_key=${raceData.sessionKey}&driver_number= Didier Pironi`), // Note: driver_number filter might need to be removed or be dynamic if this API does not support list for it for all drivers
-          fetch(`${OPENF1_API_BASE_URL}/stints?session_key=${raceData.sessionKey}`),
-          fetch(`${OPENF1_API_BASE_URL}/weather?session_key=${raceData.sessionKey}`),
-          fetch(`${OPENF1_API_BASE_URL}/race_control?session_key=${raceData.sessionKey}`),
-        ]);
+    raceSimulationRef.current = setInterval(() => {
+      setRaceData(prevRaceData => {
+        const newRaceTimeElapsed = prevRaceData.raceTimeElapsedSeconds + (SIMULATION_INTERVAL_MS / 1000);
+        if (newRaceTimeElapsed >= prevRaceData.totalRaceDurationSeconds) {
+          if(raceSimulationRef.current) clearInterval(raceSimulationRef.current);
+          toast({ title: "Race Finished!", description: "The 24-hour simulation is complete." });
+          return prevRaceData; // End of race
+        }
 
-        if (!lapsRes.ok || !positionsRes.ok || !stintsRes.ok || !weatherRes.ok || !raceControlRes.ok) {
-          console.warn("One or more API calls failed during polling.");
-          // Potentially set a less critical error state or retry logic
-          return;
+        let newCurrentLap = prevRaceData.currentLap;
+        const activeDriverIndex = prevRaceData.drivers.findIndex(d => d.isDriving);
+        if (activeDriverIndex === -1) {
+            console.error("No active driver found in simulation!");
+            return prevRaceData; // Should not happen
         }
         
-        const lapsData: OpenF1Lap[] = await lapsRes.json();
-        const positionsData: OpenF1Position[] = await positionsRes.json();
-        const stintsData: OpenF1Stint[] = await stintsRes.json();
-        const weatherData: OpenF1Weather[] = await weatherRes.json(); // Array, take latest
-        const raceControlData: OpenF1RaceControl[] = await raceControlRes.json(); // Array, process relevant
+        const updatedDrivers = prevRaceData.drivers.map((driver, index) => {
+          if (index !== activeDriverIndex) return driver;
 
-        // Process data
-        setRaceData(prevRaceData => {
-          if (!prevRaceData.sessionKey) return prevRaceData;
-
-          let newCurrentLap = prevRaceData.currentLap;
-          if (lapsData.length > 0) {
-            newCurrentLap = Math.max(...lapsData.map(l => l.lap_number || 0), prevRaceData.currentLap);
-          }
+          // Active driver updates
+          let newDriverData = { ...driver };
+          const simulatedLapTime = BASE_LAP_TIME_SECONDS + (Math.random() * LAP_TIME_VARIATION_SECONDS * 2) - LAP_TIME_VARIATION_SECONDS;
+          newDriverData.totalDriveTimeSeconds += simulatedLapTime;
           
-          let newWeather: WeatherCondition = prevRaceData.weather;
-          if (weatherData.length > 0) {
-            const latestWeather = weatherData.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-            if (latestWeather) {
-                if (latestWeather.rainfall > 5) newWeather = 'Heavy Rain';
-                else if (latestWeather.rainfall > 0.1) newWeather = 'Rainy';
-                else if (latestWeather.air_temperature < 15 || latestWeather.track_temperature < 20) newWeather = 'Cloudy'; // Simplified
-                else newWeather = 'Sunny';
-            }
-          }
+          newCurrentLap = prevRaceData.currentLap + 1; // Assuming one lap per interval for simplicity
 
-          let newSafetyCar: RaceData['safetyCar'] = 'None';
-          if (raceControlData.length > 0) {
-            const relevantMessages = raceControlData
-              .filter(rc => rc.flag === 'SC' || rc.flag === 'VSC' || (rc.category === 'SafetyCar' && !rc.message.toLowerCase().includes('ending')))
-              .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            if (relevantMessages.length > 0) {
-                const latestRelevantMessage = relevantMessages[0];
-                if (latestRelevantMessage.flag === 'SC') newSafetyCar = 'Deployed';
-                else if (latestRelevantMessage.flag === 'VSC') newSafetyCar = 'Virtual';
-                // Check for SC ending or resuming, OpenF1 specific messages might be needed
-                if (latestRelevantMessage.message.toLowerCase().includes("safety car in this lap") || latestRelevantMessage.message.toLowerCase().includes("virtual safety car deployed")) {
-                     // Stays deployed
-                } else if (latestRelevantMessage.message.toLowerCase().includes("ending") || latestRelevantMessage.message.toLowerCase().includes("resumed")) {
-                    newSafetyCar = 'None';
-                }
-
-            }
-          }
+          newDriverData.fuel = Math.max(0, driver.fuel - FUEL_CONSUMPTION_PER_LAP);
+          newDriverData.currentTires.wear = Math.min(100, driver.currentTires.wear + TIRE_WEAR_RATES[driver.currentTires.type]);
+          newDriverData.currentTires.ageLaps += 1;
           
-          const updatedDrivers = prevRaceData.drivers.map(driver => {
-            const driverLaps = lapsData.filter(l => l.driver_number === driver.driver_number).sort((a,b) => (b.lap_number || 0) - (a.lap_number || 0));
-            const driverPosition = positionsData.find(p => p.driver_number === driver.driver_number); // Assuming positionsData is sorted or we take the first match. If it contains history, need latest.
-            const driverStints = stintsData.filter(s => s.driver_number === driver.driver_number).sort((a,b) => (b.stint_number || 0) - (a.stint_number || 0));
-
-            const newDriverData = { ...driver };
-
-            if (driverPosition) {
-              newDriverData.position = driverPosition.position;
-            }
-
-            let newFuel = newDriverData.fuel;
-            if (newCurrentLap > prevRaceData.currentLap && driverLaps.some(l => l.lap_number === newCurrentLap)) { // If driver completed the new lap
-                const lapsAdvanced = newCurrentLap - prevRaceData.currentLap;
-                newFuel = Math.max(0, newDriverData.fuel - (FUEL_CONSUMPTION_PER_LAP * lapsAdvanced));
-            }
-            newDriverData.fuel = parseFloat(newFuel.toFixed(1));
-
-
-            if (driverStints.length > 0) {
-              const currentStint = driverStints[0];
-              newDriverData.currentTires.type = mapApiTireToTireType(currentStint.compound);
-              const lapsOnStint = (newCurrentLap >= currentStint.lap_start) ? (newCurrentLap - currentStint.lap_start + 1) : 0;
-              newDriverData.currentTires.ageLaps = lapsOnStint;
-              
-              // More realistic wear: reset on new stint, else accumulate
-              if(driverLaps.length > 0 && currentStint.lap_start === driverLaps[0].lap_number && driverLaps[0].is_pit_out_lap){ // approximation of new stint start
-                 newDriverData.currentTires.wear = TIRE_WEAR_RATES[newDriverData.currentTires.type] || 2.0; // Small initial wear
-              } else {
-                 newDriverData.currentTires.wear = Math.min(100, (newDriverData.currentTires.wear || 0) + (TIRE_WEAR_RATES[newDriverData.currentTires.type] || 2.0) * (newCurrentLap > (driver.lapHistory[driver.lapHistory.length -1]?.lap || 0) ? 1:0) );
-              }
-              newDriverData.pitStops = driverStints.length -1; // Number of completed stints implies pit stops
-            }
-            
-            const completedLaps = driverLaps.filter(l => l.lap_duration !== null);
-            if (completedLaps.length > 0) {
-              newDriverData.lastLapTime = formatSecondsToLapTime(completedLaps[0].lap_duration);
-              const bestLap = completedLaps.reduce((best, current) => (current.lap_duration! < best.lap_duration! ? current : best), completedLaps[0]);
-              newDriverData.bestLapTime = formatSecondsToLapTime(bestLap.lap_duration);
-
-              // Update Lap History for main driver
-              if (mainDriver && driver.id === mainDriver.id) {
-                  const newLapHistory: LapHistoryEntry[] = completedLaps
-                    .slice(0, MAX_LAP_HISTORY)
-                    .map(l => ({
-                        lap: l.lap_number,
-                        time: l.lap_duration!,
-                        tireWear: newDriverData.currentTires.wear, // This is wear at END of this polled interval for current tires
-                        fuel: newDriverData.fuel, // Fuel at END of this polled interval
-                        position: newDriverData.position
-                    }))
-                    .sort((a,b) => a.lap - b.lap); // Ensure ascending lap order for charts
-                  newDriverData.lapHistory = newLapHistory;
-              }
-            }
-            newDriverData.allLapsData = driverLaps; // Store all laps for potential future use
-
-            return newDriverData;
-          });
-          
-          // Re-sort drivers by position
-          updatedDrivers.sort((a, b) => a.position - b.position);
-
-          // Update mainDriver state with the latest data
-          const currentMainDriverData = updatedDrivers.find(d => d.id === mainDriver?.id);
-          if (currentMainDriverData) {
-            setMainDriver(currentMainDriverData);
-          } else if (updatedDrivers.length > 0) {
-            // If main driver somehow lost, default to P1 or first
-             setMainDriver(updatedDrivers.find(d => d.position === 1) || updatedDrivers[0]);
-          }
-
-
-          return {
-            ...prevRaceData,
-            drivers: updatedDrivers,
-            currentLap: newCurrentLap,
-            weather: newWeather,
-            safetyCar: newSafetyCar,
+          newDriverData.lastLapTime = formatSecondsToLapTime(simulatedLapTime);
+          const newLapEntry: LapHistoryEntry = { 
+              lap: newCurrentLap, 
+              time: simulatedLapTime, 
+              tireWear: newDriverData.currentTires.wear, 
+              fuel: newDriverData.fuel,
+              position: newDriverData.position // position doesn't change much in this simple sim
           };
+          newDriverData.lapHistory = [newLapEntry, ...driver.lapHistory.slice(0, MAX_LAP_HISTORY - 1)];
+          
+          const openF1LapEquivalent = {driver_number: driver.driver_number, lap_number: newCurrentLap, lap_duration: simulatedLapTime};
+          newDriverData.allLapsData = [openF1LapEquivalent, ...driver.allLapsData];
+
+          if (!driver.bestLapTime || simulatedLapTime < parseFloat(driver.bestLapTime.replace(':','.') /* crude parse */) ) { // Simplified best lap logic
+            newDriverData.bestLapTime = newDriverData.lastLapTime;
+          }
+          
+          // Check for AI-triggered pit stop or max drive time
+          let shouldPitThisLap = false;
+          if (strategySuggestion?.suggestedActions?.toLowerCase().includes(driver.name.toLowerCase()) && strategySuggestion?.suggestedActions?.toLowerCase().includes(`lap ${newCurrentLap}`)) {
+            shouldPitThisLap = true;
+          }
+          if (newDriverData.totalDriveTimeSeconds >= MAX_DRIVER_DRIVE_TIME_SECONDS - (15 * 60)) { // Pit if within 15 mins of limit
+             if (!shouldPitThisLap) toast({title: "Driver Nearing Limit", description: `${driver.name} is nearing max drive time. Consider pitting.`});
+             // AI should ideally catch this, but as a fallback
+          }
+
+
+          if (shouldPitThisLap || newDriverData.fuel < 5 || newDriverData.currentTires.wear > 85 ) { // Simplified pit conditions
+            newDriverData.pitStops += 1;
+            const pitStopTime = PIT_STOP_BASE_DURATION_SECONDS + TIRE_CHANGE_DURATION_SECONDS; // Simplified pit stop time
+            // raceTimeElapsedSeconds will be updated globally, effectively adding pit stop time.
+            
+            // Select next driver (simple rotation, not exceeding max time)
+            let nextDriverIdx = (activeDriverIndex + 1) % NUM_DRIVERS_PER_TEAM;
+            let attempts = 0;
+            while(prevRaceData.drivers[nextDriverIdx].totalDriveTimeSeconds >= MAX_DRIVER_DRIVE_TIME_SECONDS && attempts < NUM_DRIVERS_PER_TEAM) {
+                nextDriverIdx = (nextDriverIdx + 1) % NUM_DRIVERS_PER_TEAM;
+                attempts++;
+            }
+            if(attempts === NUM_DRIVERS_PER_TEAM) { // All drivers maxed out - highly unlikely in 24h race if planned well
+                toast({variant: "destructive", title: "CRITICAL: All drivers at limit!", description: "Strategy error."});
+            }
+
+            // Update all drivers for the swap
+            return prevRaceData.drivers.map((d, i) => {
+                if (i === activeDriverIndex) { // Outgoing driver
+                    return {...newDriverData, isDriving: false, fuel: 100, currentTires: {type: 'Medium', wear: 0, ageLaps: 0, stintStartLap: newCurrentLap +1}};
+                }
+                if (i === nextDriverIdx) { // Incoming driver
+                    return {...d, isDriving: true, fuel: 100, currentTires: {type: 'Medium', wear: 0, ageLaps: 0, stintStartLap: newCurrentLap +1}};
+                }
+                return d;
+            });
+          }
+          return newDriverData;
         });
 
-      } catch (error) {
-        console.error("Error polling live data:", error);
-        // Potentially set a non-critical error state for UI feedback
-      }
-    }, API_POLL_INTERVAL_MS);
+        // If a pit stop happened, updatedDrivers is a new array where one map call returned another map.
+        // We need to handle this carefully. The logic above already returns the full new drivers array in case of a pit.
+        let finalDriversArray = Array.isArray(updatedDrivers[activeDriverIndex]) ? (updatedDrivers[activeDriverIndex] as unknown as Driver[]) : updatedDrivers;
 
-    return () => clearInterval(fetchDataInterval);
-  }, [isLoadingData, raceData.sessionKey, mainDriver]); // mainDriver in dependency to update its lap history
 
-  const fetchPitStopAdvice = useCallback(async (driverForAdvice: Driver, currentLapForAdvice: number) => {
-    if (!driverForAdvice || currentLapForAdvice <= 0 || aiCallCoolDown || !driverForAdvice.currentTires.type) return;
+        return {
+          ...prevRaceData,
+          drivers: finalDriversArray,
+          currentLap: newCurrentLap,
+          raceTimeElapsedSeconds: newRaceTimeElapsed,
+          // Simulate weather changes very infrequently for Le Mans
+          weather: Math.random() < 0.005 ? (['Sunny', 'Cloudy', 'Rainy'] as WeatherCondition[])[Math.floor(Math.random() * 3)] : prevRaceData.weather,
+          safetyCar: Math.random() < 0.002 ? (['Deployed', 'Virtual'] as RaceData['safetyCar'][]) [Math.floor(Math.random()*2)] : prevRaceData.safetyCar === 'None' ? 'None' : (Math.random() < 0.1 ? 'None' : prevRaceData.safetyCar)
+        };
+      });
+    }, SIMULATION_INTERVAL_MS);
 
-    const currentTireWear = parseFloat(driverForAdvice.currentTires.wear.toFixed(1));
-    const currentFuelLevel = parseFloat(driverForAdvice.fuel.toFixed(1));
-
-    if (lastSuccessfulAiCallData && pitStopSuggestion) {
-      const { lap: prevLap, tireWear: prevTireWear, fuel: prevFuel } = lastSuccessfulAiCallData;
-      const sameLap = prevLap === currentLapForAdvice;
-      const tireWearDiff = Math.abs(currentTireWear - prevTireWear);
-      const fuelDiff = Math.abs(currentFuelLevel - prevFuel);
-      
-      // Only call if lap changed, or significant wear/fuel change on same lap
-      if (sameLap && tireWearDiff < 10 && fuelDiff < 10) {
-        return;
-      }
-    }
-    
-    setIsPitStopLoading(true);
-    const params: SuggestPitStopsInput = {
-      driverName: driverForAdvice.name,
-      currentLap: currentLapForAdvice,
-      tireCondition: `${driverForAdvice.currentTires.type} - ${driverForAdvice.currentTires.wear.toFixed(0)}% wear, ${driverForAdvice.currentTires.ageLaps} Laps old`,
-      fuelLevel: currentFuelLevel,
-      racePosition: driverForAdvice.position,
-      weatherConditions: raceData.weather,
-      competitorStrategies: 'Key rivals on varied strategies; some recently pitted based on observations.', 
+    return () => {
+      if (raceSimulationRef.current) clearInterval(raceSimulationRef.current);
     };
-    setLastPitStopCallParams(params); 
+  }, [isLoadingApp, toast, strategySuggestion]);
+
+  // Effect to update teamDrivers state when raceData.drivers changes
+  useEffect(() => {
+    setTeamDrivers(raceData.drivers);
+  }, [raceData.drivers]);
+
+
+  const fetchLeMansStrategyCallback = useCallback(async () => {
+    if (isStrategistLoading || raceData.drivers.length === 0 || raceData.currentLap === 0) return;
+
+    setIsStrategistLoading(true);
+    const currentTeamDriverStatuses = raceData.drivers.map(d => ({
+      name: d.name,
+      currentTireType: d.currentTires.type,
+      currentTireAgeLaps: d.currentTires.ageLaps,
+      currentTireWear: parseFloat(d.currentTires.wear.toFixed(1)),
+      fuelLevel: parseFloat(d.fuel.toFixed(1)),
+      totalDriveTimeSeconds: d.totalDriveTimeSeconds,
+      isCurrentlyDriving: d.isDriving,
+      currentLap: d.isDriving ? raceData.currentLap : (d.lapHistory[0]?.lap || 0) // Approx lap for non-driving
+    }));
+
+    const params: SuggestLeMansStrategyInput = {
+      teamDriverStatuses: currentTeamDriverStatuses,
+      raceCurrentLap: raceData.currentLap,
+      raceTotalLaps: raceData.totalLaps,
+      raceTimeElapsedSeconds: raceData.raceTimeElapsedSeconds,
+      totalRaceDurationSeconds: raceData.totalRaceDurationSeconds,
+      weatherConditions: raceData.weather,
+      trackName: raceData.trackName,
+      safetyCarStatus: raceData.safetyCar,
+    };
+    setLastStrategyCallParams(params);
+    lastAiCallLapRef.current = raceData.currentLap;
 
     try {
-      const timeoutPromise = new Promise<SuggestPitStopsOutput>((_, reject) => 
-        setTimeout(() => reject(new Error('AI Pit Advisor timed out after 10 seconds.')), AI_CALL_TIMEOUT_MS)
+      const timeoutPromise = new Promise<SuggestLeMansStrategyOutput>((_, reject) => 
+        setTimeout(() => reject(new Error(`AI Strategist timed out after ${AI_CALL_TIMEOUT_MS / 1000} seconds.`)), AI_CALL_TIMEOUT_MS)
       );
 
       const result = await Promise.race([
-        suggestPitStops(params),
+        suggestLeMansStrategy(params), // Use the new flow
         timeoutPromise
       ]);
       
-      setPitStopSuggestion(result);
-      setLastSuccessfulAiCallData({ lap: currentLapForAdvice, tireWear: currentTireWear, fuel: currentFuelLevel });
+      setStrategySuggestion(result);
     } catch (error) {
-      console.error("Error fetching pit stop suggestion:", error);
+      console.error("Error fetching Le Mans strategy:", error);
       toast({
         variant: "destructive",
-        title: "AI Pit Advisor Error",
-        description: (error as Error).message || "Failed to get pit stop suggestion.",
+        title: "AI Strategist Error",
+        description: (error as Error).message || "Failed to get strategy suggestion.",
       });
-      setPitStopSuggestion(null); 
-      
-      setAiCallCoolDown(true);
-      setTimeout(() => {
-        setAiCallCoolDown(false);
-      }, 15000); 
+      setStrategySuggestion(null); 
     } finally {
-      setIsPitStopLoading(false);
+      setIsStrategistLoading(false);
     }
-  }, [
-    lastSuccessfulAiCallData, 
-    pitStopSuggestion, 
-    raceData.weather, // raceData.weather from state
-    toast,
-    aiCallCoolDown,
-  ]);
+  }, [isStrategistLoading, raceData, toast]);
 
+  // Call AI periodically
   useEffect(() => {
-    if (mainDriver && raceData.currentLap > 0 && !isLoadingData && !isPitStopLoading && !aiCallCoolDown) {
-      fetchPitStopAdvice(mainDriver, raceData.currentLap);
+    if (!isLoadingApp && raceData.currentLap > 0 && raceData.currentLap % AI_CALL_INTERVAL_LAPS === 0 && raceData.currentLap !== lastAiCallLapRef.current) {
+        fetchLeMansStrategyCallback();
     }
-  }, [mainDriver, raceData.currentLap, isLoadingData, isPitStopLoading, fetchPitStopAdvice, aiCallCoolDown]);
+  }, [raceData.currentLap, isLoadingApp, fetchLeMansStrategyCallback]);
 
 
   const handleSettingsChange = (newSettings: Partial<Settings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }));
   };
 
-  if (isLoadingData && raceData.drivers.length === 0) { // Show initial loading only if no drivers yet
+  if (isLoadingApp) {
     return (
       <div className="flex flex-col min-h-screen bg-background items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="mt-4 text-lg text-foreground">Loading F1 Session Data...</p>
+        <p className="mt-4 text-lg text-foreground">Loading Le Mans Strategist...</p>
       </div>
     );
   }
   
-  const displayTrackName = raceData.sessionName ? `${raceData.trackName} (${raceData.sessionName})` : raceData.trackName;
+  const displayTrackName = raceData.trackName;
+  const currentDrivingDriver = teamDrivers.find(d => d.isDriving);
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -401,73 +310,64 @@ export default function DashboardPage() {
         {dataLoadError && (
           <Alert variant="destructive" className="mb-4">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Error Loading Race Data</AlertTitle>
-            <AlertDescription>{dataLoadError} Using fallback or last known data if available.</AlertDescription>
+            <AlertTitle>Critical Error</AlertTitle>
+            <AlertDescription>{dataLoadError}</AlertDescription>
           </Alert>
         )}
 
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
-            <TabsTrigger value="overview" className="text-sm md:text-base"><ListChecks className="w-4 h-4 mr-2 hidden md:inline" />Telemetry & AI</TabsTrigger>
+            <TabsTrigger value="overview" className="text-sm md:text-base"><ListChecks className="w-4 h-4 mr-2 hidden md:inline" />Team Telemetry</TabsTrigger>
             <TabsTrigger value="map" className="text-sm md:text-base"><MapPinIcon className="w-4 h-4 mr-2 hidden md:inline" />Track Map</TabsTrigger>
-            <TabsTrigger value="pitstop" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Pit Details</TabsTrigger>
-            <TabsTrigger value="competitor" className="text-sm md:text-base"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitor AI</TabsTrigger>
+            <TabsTrigger value="strategist" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Strategist</TabsTrigger>
+            <TabsTrigger value="competitors" className="text-sm md:text-base"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitors</TabsTrigger>
           </TabsList>
           
-          {mainDriver && (
-             <div className="p-4 bg-card rounded-lg shadow_ mb-6">
-              <h3 className="text-lg font-medium text-primary font-headline">
-                Main Focus: P{mainDriver.position || 'N/A'} - {mainDriver.name} ({mainDriver.team})
-              </h3>
-              <div className="text-sm text-muted-foreground">
-                Track: {displayTrackName} | Lap: {raceData.currentLap} / {raceData.totalLaps} | Weather: {raceData.weather} | Safety Car: {raceData.safetyCar}
-              </div>
+          <div className="p-4 bg-card rounded-lg shadow-lg mb-6">
+            <h3 className="text-xl font-medium text-primary font-headline">
+              Your Team Endurance - Le Mans 24 Hours (Simulated)
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground mt-2">
+                <p>Track: {displayTrackName}</p>
+                <p>Race Time: {formatSecondsToHMS(raceData.raceTimeElapsedSeconds)} / {formatSecondsToHMS(RACE_DURATION_SECONDS)}</p>
+                <p>Current Lap: {raceData.currentLap} / {raceData.totalLaps}</p>
+                <p>Weather: {raceData.weather}</p>
+                <p>Safety Car: {raceData.safetyCar}</p>
+                {currentDrivingDriver && <p>Currently Driving: {currentDrivingDriver.name}</p>}
             </div>
-          )}
+          </div>
 
           <TabsContent value="overview">
-            {mainDriver ? (
+            {teamDrivers.length > 0 ? (
               <LiveTelemetry 
-                driver={mainDriver} 
+                teamDrivers={teamDrivers} 
+                raceData={raceData}
                 settings={settings} 
-                pitStopSuggestion={pitStopSuggestion}
-                isPitStopLoading={isPitStopLoading}
-                lapHistory={mainDriver.lapHistory || []}
+                strategySuggestion={strategySuggestion} // Pass the new strategy type
+                isStrategistLoading={isStrategistLoading}
               />
             ) : (
-              !dataLoadError && <p className="text-center text-muted-foreground p-8">No main driver data to display. Waiting for API data...</p>
+              <p className="text-center text-muted-foreground p-8">Initializing team data...</p>
             )}
           </TabsContent>
           <TabsContent value="map">
-            {raceData.drivers.length > 0 ? (
-              <InteractiveTrackMap 
-                allDrivers={raceData.drivers} 
-                mainDriver={mainDriver}
+             <InteractiveTrackMap 
+                allDrivers={teamDrivers} // Show only team drivers on map for now
+                mainDriver={currentDrivingDriver || null} // Highlight current driver
                 trackName={displayTrackName} 
               />
-            ) : (
-               !dataLoadError && <p className="text-center text-muted-foreground p-8">Track map unavailable. Waiting for API data...</p>
-            )}
           </TabsContent>
-          <TabsContent value="pitstop">
-            {mainDriver ? (
-              <PitStopAdvisor 
-                selectedDriver={mainDriver} 
-                currentLap={raceData.currentLap}
-                pitStopSuggestion={pitStopSuggestion}
-                isPitStopLoading={isPitStopLoading}
-                lastPitStopCallParams={lastPitStopCallParams}
-               />
-            ) : (
-               !dataLoadError && <p className="text-center text-muted-foreground p-8">Pit advisor details unavailable. Waiting for API data...</p>
-            )}
+          <TabsContent value="strategist">
+            <LeMansStrategistDisplay
+                teamDrivers={teamDrivers}
+                raceData={raceData}
+                strategySuggestion={strategySuggestion}
+                isStrategistLoading={isStrategistLoading}
+                lastStrategyCallParams={lastStrategyCallParams}
+            />
           </TabsContent>
-          <TabsContent value="competitor">
-            {raceData.drivers.length > 0 ? (
-              <CompetitorAnalyzer allDrivers={raceData.drivers} mainDriver={mainDriver} />
-            ) : (
-              !dataLoadError && <p className="text-center text-muted-foreground p-8">Competitor analyzer unavailable. Waiting for API data...</p>
-            )}
+          <TabsContent value="competitors">
+             <CompetitorAnalyzer allDrivers={[]} mainDriver={null} />
           </TabsContent>
         </Tabs>
       </main>
@@ -478,7 +378,7 @@ export default function DashboardPage() {
         onSettingsChange={handleSettingsChange}
       />
       <footer className="py-6 text-center text-sm text-muted-foreground border-t">
-        F1 Strategist - Built with Next.js, Tailwind CSS, and Genkit AI. Data from OpenF1 API.
+        Le Mans Strategist - Simulated Endurance Race.
       </footer>
     </div>
   );

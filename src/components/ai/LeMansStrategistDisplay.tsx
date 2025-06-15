@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Sparkles, Brain, Loader2, Info, Users } from 'lucide-react';
 import type { Driver, SuggestLeMansStrategyInput, SuggestLeMansStrategyOutput, RaceData } from '@/lib/types';
-import { formatSecondsToHMS } from '@/app/page'; // Assuming formatSecondsToHMS is exported or moved to utils
+// import { formatSecondsToHMS } from '@/app/page'; // Assuming formatSecondsToHMS is exported or moved to utils
 
 interface LeMansStrategistDisplayProps {
   teamDrivers: Driver[];
@@ -51,7 +51,7 @@ export function LeMansStrategistDisplay({
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle className="text-2xl font-headline text-primary flex items-center gap-2">
-          <Brain className="w-6 h-6" /> AI Le Mans Strategist Details
+          <Brain className="w-6 h-6" /> AI LeMans Strategist Details
         </CardTitle>
         <CardDescription>View the latest AI strategy suggestions for Your Team Endurance and the data used for analysis.</CardDescription>
       </CardHeader>

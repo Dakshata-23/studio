@@ -5,7 +5,8 @@ export type WeatherCondition = 'Sunny' | 'Cloudy' | 'Rainy' | 'Heavy Rain';
 export interface TireStatus {
   type: TireType;
   wear: number; // Percentage 0-100
-  ageLaps?: number; // Optional: Laps on current set
+  ageLaps: number; 
+  stintStartLap?: number; // Lap number when this tire stint started
 }
 
 export interface LapHistoryEntry {
@@ -13,163 +14,103 @@ export interface LapHistoryEntry {
   time: number; // in seconds
   tireWear?: number;
   fuel?: number;
-  position?: number;
+  position?: number; // Overall race position, less emphasis in single team sim
 }
 
 export interface Driver {
-  id: string; // Will use driver_number from API
+  id: string; 
   name: string;
-  team: string;
-  shortName: string; // 3-letter abbreviation (name_acronym from API)
-  position: number;
+  team: string; // e.g., "Your Team"
+  shortName: string; 
+  position: number; // Driver's current position in race (simulated)
   currentTires: TireStatus;
-  lastLapTime: string | null; // e.g., "1:30.567" or null if not set
+  lastLapTime: string | null; 
   bestLapTime: string | null;
   fuel: number; // Percentage 0-100
   pitStops: number;
-  color: string; // Hex color for UI representation (from team_colour API)
-  driver_number: number; // From API
-  lapHistory: LapHistoryEntry[]; // Changed from optional
-  // Fields to store raw lap data for best lap calculation
-  allLapsData?: OpenF1Lap[];
+  color: string; 
+  driver_number: number; // Could be 1, 2, 3 for the team
+  lapHistory: LapHistoryEntry[];
+  allLapsData: OpenF1Lap[]; // Re-using OpenF1Lap for structure, but data is simulated
+  totalDriveTimeSeconds: number; // Cumulative drive time for this driver in the race
+  isDriving: boolean; // True if this driver is currently in the car
 }
 
 export interface RaceData {
-  drivers: Driver[];
+  drivers: Driver[]; // Holds the 3 drivers of "Your Team"
   totalLaps: number;
   currentLap: number;
   trackName: string;
   weather: WeatherCondition;
-  safetyCar: 'None' | 'Deployed' | 'Virtual';
-  sessionKey: number | null;
-  meetingKey: number | null;
-  sessionName?: string;
-  countryName?: string;
+  safetyCar: 'None' | 'Deployed' | 'Virtual'; // Safety car can still be a simulated event
+  raceTimeElapsedSeconds: number;
+  totalRaceDurationSeconds: number;
 }
 
 export interface Settings {
   showLapTimes: boolean;
   showFuelLevel: boolean;
   showTireWear: boolean;
-  aiAssistanceLevel: 'basic' | 'advanced';
+  aiAssistanceLevel: 'basic' | 'advanced'; // Could be 'standard' | 'detailed' for Le Mans
 }
 
-// For OpenF1 API response structures
-export interface OpenF1Driver {
-  session_key: number;
-  meeting_key: number;
-  broadcast_name: string;
-  country_code: string | null;
-  driver_number: number;
-  first_name: string | null;
-  full_name: string;
-  headshot_url: string | null;
-  last_name: string | null;
-  name_acronym: string;
-  team_colour: string | null;
-  team_name: string;
-}
-
-export interface OpenF1Session {
-  session_key: number;
-  meeting_key: number;
-  session_name: string;
-  country_name: string | null;
-  location: string;
-  session_type: string; // e.g., "Race"
-  start_date: string;
-  end_date: string;
-  circuit_key: number;
-  circuit_short_name: string; // Often the track name
-  // total_laps might not be directly here, often in meeting or known contextually
-}
-
-export interface OpenF1Meeting {
-  meeting_key: number;
-  circuit_short_name: string;
-  meeting_name: string;
-  location: string;
-  // FIA document endpoint might have total laps for a specific event schedule
-  // For now, we'll use a fallback or assume a typical race length.
-}
-
+// Keeping OpenF1Lap structure for simulated lap data for convenience
 export interface OpenF1Lap {
-  session_key: number;
-  meeting_key: number;
+  session_key?: number; // Optional as not from API
+  meeting_key?: number; // Optional
   driver_number: number;
   lap_number: number;
-  lap_duration: number | null; // in seconds
-  stint_number: number;
-  pit_duration: number | null;
-  is_pit_out_lap: boolean | null;
-  duration_sector_1: number | null;
-  duration_sector_2: number | null;
-  duration_sector_3: number | null;
-  segments_sector_1: number[] | null;
-  segments_sector_2: number[] | null;
-  segments_sector_3: number[] | null;
-  lap_start_time: string | null; // Date string
-  date_start: string | null; // Date string
-}
-
-export interface OpenF1Position {
-  session_key: number;
-  meeting_key: number;
-  driver_number: number;
-  date: string; // Timestamp of the position data
-  position: number;
-}
-
-export interface OpenF1Stint {
-  session_key: number;
-  meeting_key: number;
-  stint_number: number;
-  driver_number: number;
-  lap_start: number;
-  lap_end: number | null;
-  compound: TireType | string; // API might return uppercase string e.g. "SOFT"
-  tyre_age_at_start: number;
-}
-
-export interface OpenF1Weather {
-  session_key: number;
-  meeting_key: number;
-  date: string;
-  air_temperature: number;
-  track_temperature: number;
-  rainfall: number; // mm, 0 if no rain
-  humidity: number; // %
-  wind_speed: number; // m/s
-  pressure: number; // hPa
-  wind_direction: number; // degrees
-}
-
-export interface OpenF1RaceControl {
-    session_key: number;
-    meeting_key: number;
-    date: string;
-    category: string; // "SafetyCar", "RedFlag", "TrackSurfaceSlippery" etc.
-    message: string;
-    flag: string | null; // "YELLOW", "GREEN", "RED", "SC", "VSC", "CLEAR"
-    scope: string | null; // "Track", "Sector"
-    sector: number | null;
-    lap_number: number | null;
+  lap_duration: number | null; 
+  stint_number?: number; // Optional
+  pit_duration?: number | null; // Optional
+  is_pit_out_lap?: boolean | null; // Optional
+  // Sectors less critical for high-level simulation but can be kept
+  duration_sector_1?: number | null;
+  duration_sector_2?: number | null;
+  duration_sector_3?: number | null;
+  lap_start_time?: string | null; 
+  date_start?: string | null; 
 }
 
 
-// Copied from ai/flows/suggest-pit-stops.ts for easier import in page.tsx
-export interface SuggestPitStopsInput {
-  driverName: string;
-  currentLap: number;
-  tireCondition: string;
-  fuelLevel: number;
-  racePosition: number;
-  weatherConditions: string;
-  competitorStrategies?: string;
+// Types for the new LeMansStrategy AI Flow
+interface TeamDriverStatusInput {
+  name: string;
+  currentTireType: TireType;
+  currentTireAgeLaps: number;
+  currentTireWear: number; // %
+  fuelLevel: number; // %
+  totalDriveTimeSeconds: number;
+  isCurrentlyDriving: boolean;
+  currentLap: number; // Lap driver is on / last completed
 }
 
-export interface SuggestPitStopsOutput {
-  suggestedPitStopLap: number;
-  reasoning: string;
-  alternativeStrategies: string;
+export interface SuggestLeMansStrategyInput {
+  teamDriverStatuses: TeamDriverStatusInput[];
+  raceCurrentLap: number;
+  raceTotalLaps: number;
+  raceTimeElapsedSeconds: number;
+  totalRaceDurationSeconds: number;
+  weatherConditions: WeatherCondition;
+  trackName: string;
+  // Add safetyCar status if AI should consider it
+  safetyCarStatus: RaceData['safetyCar']; 
+}
+
+export interface SuggestLeMansStrategyOutput {
+  suggestedActions: string; // e.g., "Pit Driver A on lap X for Mediums. Driver B to take over."
+  strategicReasoning: string; // Explanation
+  // Optional: could suggest target lap for next pit, or next driver change
+  nextOptimalPitLap?: number;
+  recommendedNextDriverName?: string;
+}
+
+// Keep for Competitor Analyzer (though simplified)
+export interface AnalyzeCompetitorStrategyInput {
+  competitorName: string;
+  historicalData: string;
+  currentRaceData: string;
+}
+export interface AnalyzeCompetitorStrategyOutput {
+  strategySummary: string;
 }
