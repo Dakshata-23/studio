@@ -1,23 +1,21 @@
+
 'use client';
 
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { Driver, TireType } from '@/lib/types';
 import { TIRE_COMPOUND_CLASSES } from '@/lib/constants';
-import { MapPin, Info } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
 
-
 interface InteractiveTrackMapProps {
-  drivers: Driver[];
+  allDrivers: Driver[]; // All drivers for showing positions
+  mainDriver: Driver | null; // The single focused driver
   trackName: string;
-  focusedDriverId?: string | null;
-  onDriverSelect: (driverId: string | null) => void;
 }
 
-// Simplified mock positions for demonstration. Replace with actual data for a real map.
+// Simplified mock positions for demonstration.
 const MOCK_POSITIONS = [
   { x: 10, y: 20 }, { x: 15, y: 25 }, { x: 20, y: 30 }, { x: 25, y: 35 },
   { x: 30, y: 20 }, { x: 35, y: 25 }, { x: 40, y: 30 }, { x: 45, y: 35 },
@@ -26,19 +24,19 @@ const MOCK_POSITIONS = [
   { x: 90, y: 20 }, { x: 5, y: 50 }, { x: 12, y: 55 }, { x: 18, y: 60 },
 ];
 
+interface ClientDriver extends Driver {
+  mapPosition: { x: number; y: number };
+}
 
-export function InteractiveTrackMap({ drivers, trackName, focusedDriverId, onDriverSelect }: InteractiveTrackMapProps) {
-  const [clientDrivers, setClientDrivers] = useState<Driver[]>([]);
+export function InteractiveTrackMap({ allDrivers, mainDriver, trackName }: InteractiveTrackMapProps) {
+  const [clientDrivers, setClientDrivers] = useState<ClientDriver[]>([]);
 
   useEffect(() => {
-    // Ensure this runs client-side to avoid hydration issues if MOCK_POSITIONS were dynamic
-    setClientDrivers(drivers.map((driver, index) => ({
+    setClientDrivers(allDrivers.map((driver, index) => ({
       ...driver,
-      // Assign mock positions; in a real app, these would come from telemetry
       mapPosition: MOCK_POSITIONS[index % MOCK_POSITIONS.length] || { x: 50, y: 50 }
     })));
-  }, [drivers]);
-
+  }, [allDrivers]);
 
   return (
     <Card className="shadow-lg_">
@@ -58,28 +56,26 @@ export function InteractiveTrackMap({ drivers, trackName, focusedDriverId, onDri
             data-ai-hint="race track circuit"
             className="opacity-30"
           />
-          {clientDrivers.map((driver, index) => {
+          {clientDrivers.map((driver) => {
             const tireVisual = TIRE_COMPOUND_CLASSES[driver.currentTires.type];
-            const isFocused = driver.id === focusedDriverId;
-            // @ts-ignore mapPosition is added dynamically
-            const pos = driver.mapPosition || MOCK_POSITIONS[index % MOCK_POSITIONS.length];
-
+            const isMainFocusedDriver = mainDriver ? driver.id === mainDriver.id : false;
+            const pos = driver.mapPosition;
 
             return (
               <Popover key={driver.id}>
                 <PopoverTrigger asChild>
                   <button
                     aria-label={`Driver ${driver.shortName} position`}
-                    className={`absolute w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 transform hover:scale-125 focus:outline-none focus:ring-2 focus:ring-ring`}
+                    className={`absolute w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 transform hover:scale-110 focus:outline-none`}
                     style={{ 
                       left: `${pos.x}%`, 
                       top: `${pos.y}%`, 
                       backgroundColor: driver.color,
-                      border: isFocused ? '3px solid hsl(var(--accent))' : `2px solid ${driver.color}`,
-                      boxShadow: isFocused ? '0 0 10px hsl(var(--accent))' : 'none',
-                      zIndex: isFocused ? 10 : 1,
+                      border: isMainFocusedDriver ? '3px solid hsl(var(--accent))' : `2px solid ${driver.color}`,
+                      boxShadow: isMainFocusedDriver ? '0 0 10px hsl(var(--accent))' : 'none',
+                      zIndex: isMainFocusedDriver ? 10 : 1,
                      }}
-                    onClick={() => onDriverSelect(driver.id === focusedDriverId ? null : driver.id)}
+                    // onClick={() => onDriverSelect(driver.id === focusedDriverId ? null : driver.id)} // Selection removed
                   >
                     <span className="text-white mix-blend-difference">{driver.position}</span>
                   </button>
@@ -98,7 +94,8 @@ export function InteractiveTrackMap({ drivers, trackName, focusedDriverId, onDri
             );
           })}
         </div>
-        <p className="text-xs text-muted-foreground mt-2 text-center">Driver positions are illustrative. Click on a driver to focus.</p>
+        {mainDriver && <p className="text-xs text-muted-foreground mt-2 text-center">Highlighting {mainDriver.name}. Driver positions are illustrative.</p>}
+        {!mainDriver && <p className="text-xs text-muted-foreground mt-2 text-center">Driver positions are illustrative.</p>}
       </CardContent>
     </Card>
   );

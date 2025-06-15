@@ -6,19 +6,17 @@ import { Header } from '@/components/layout/Header';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { LiveTelemetry } from '@/components/dashboard/LiveTelemetry';
 import { InteractiveTrackMap } from '@/components/dashboard/InteractiveTrackMap';
-import { FocusSelector } from '@/components/controls/FocusSelector';
 import { PitStopAdvisor } from '@/components/ai/PitStopAdvisor';
 import { CompetitorAnalyzer } from '@/components/ai/CompetitorAnalyzer';
-import { DEFAULT_SETTINGS, MOCK_RACE_DATA, DRIVER_COLORS } from '@/lib/constants'; // Keep MOCK_RACE_DATA for non-driver parts, DRIVER_COLORS for fallback
+import { DEFAULT_SETTINGS, MOCK_RACE_DATA, DRIVER_COLORS } from '@/lib/constants';
 import type { RaceData, Settings, Driver, OpenF1Driver, TireType } from '@/lib/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Brain, Users, MapPinIcon, ListChecks, Loader2, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
 const INITIAL_RACE_DATA: RaceData = {
-  drivers: [],
+  drivers: [], // This will hold all drivers for context (e.g., competitor analysis)
   totalLaps: MOCK_RACE_DATA.totalLaps,
   currentLap: MOCK_RACE_DATA.currentLap,
   trackName: MOCK_RACE_DATA.trackName,
@@ -32,11 +30,10 @@ export default function DashboardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [raceData, setRaceData] = useState<RaceData>(INITIAL_RACE_DATA);
-  const [focusedDriverId, setFocusedDriverId] = useState<string | null>(null);
+  const [mainDriver, setMainDriver] = useState<Driver | null>(null); // For the single focused driver
   const [isLoadingDrivers, setIsLoadingDrivers] = useState(true);
   const [driverLoadError, setDriverLoadError] = useState<string | null>(null);
 
-  // Fetch initial driver list from OpenF1 API
   useEffect(() => {
     const fetchDrivers = async () => {
       setIsLoadingDrivers(true);
@@ -59,26 +56,25 @@ export default function DashboardPage() {
           team: apiDriver.team_name,
           color: apiDriver.team_colour ? `#${apiDriver.team_colour}` : DRIVER_COLORS[index % DRIVER_COLORS.length],
           driver_number: apiDriver.driver_number,
-          // Initialize race-specific data with mock/default values
-          position: index + 1, // Initial position based on API list order
+          position: index + 1,
           currentTires: {
-            type: TIRE_TYPES[index % TIRE_TYPES.length], // Cycle through tire types
-            wear: Math.floor(Math.random() * 30) + 5, // Random initial wear 5-35%
-            ageLaps: Math.floor(Math.random() * 10) + 1, // Random initial age 1-10 laps
+            type: TIRE_TYPES[index % TIRE_TYPES.length],
+            wear: Math.floor(Math.random() * 30) + 5,
+            ageLaps: Math.floor(Math.random() * 10) + 1,
           },
-          lastLapTime: null, // Will be populated by simulation
-          bestLapTime: null, // Will be populated by simulation
-          fuel: Math.floor(Math.random() * 30) + 70, // Random initial fuel 70-100%
-          pitStops: Math.floor(Math.random() * 2), // Random initial pit stops 0-1
+          lastLapTime: null,
+          bestLapTime: null,
+          fuel: Math.floor(Math.random() * 30) + 70,
+          pitStops: Math.floor(Math.random() * 2),
         }));
 
         setRaceData(prev => ({ ...prev, drivers: transformedDrivers }));
+        if (transformedDrivers.length > 0) {
+          setMainDriver(transformedDrivers[0]); // Set the first driver as the main driver
+        }
       } catch (error) {
         console.error("Error fetching OpenF1 drivers:", error);
         setDriverLoadError((error as Error).message || 'An unknown error occurred while fetching drivers.');
-        // Fallback to MOCK_DRIVERS from constants if API fails significantly
-        // For now, we just show an error. A fallback could be added here.
-        // setRaceData(prev => ({ ...prev, drivers: MOCK_DRIVERS })); 
       } finally {
         setIsLoadingDrivers(false);
       }
@@ -88,41 +84,46 @@ export default function DashboardPage() {
   }, []);
 
 
-  // Simulate live data updates for race telemetry (positions, lap times, tire wear, fuel)
   useEffect(() => {
-    if (isLoadingDrivers || raceData.drivers.length === 0) return; // Don't run simulation if drivers are loading or empty
+    if (isLoadingDrivers || raceData.drivers.length === 0) return;
 
     const interval = setInterval(() => {
       setRaceData(prevData => {
         if (prevData.drivers.length === 0) return prevData;
 
-        const updatedDrivers = prevData.drivers.map(driver => ({
-          ...driver,
-          lastLapTime: driver.lastLapTime ? `1:${(Math.random() * 10 + 20).toFixed(3).padStart(6, '0')}` : `1:${(Math.random() * 10 + 25).toFixed(3).padStart(6, '0')}`, // Simulate new lap times
-          currentTires: {
-            ...driver.currentTires,
-            wear: Math.min(100, driver.currentTires.wear + Math.floor(Math.random() * 2) + 1),
-            ageLaps: (driver.currentTires.ageLaps || 0) + 1,
-          },
-          fuel: Math.max(0, driver.fuel - (Math.random() * 0.5 + 0.2)),
-        }));
+        let newMainDriver: Driver | null = null;
 
-        // Simulate position changes for top 3 (simplified)
+        const updatedDrivers = prevData.drivers.map(driver => {
+          const updatedDriver = {
+            ...driver,
+            lastLapTime: driver.lastLapTime ? `1:${(Math.random() * 10 + 20).toFixed(3).padStart(6, '0')}` : `1:${(Math.random() * 10 + 25).toFixed(3).padStart(6, '0')}`,
+            currentTires: {
+              ...driver.currentTires,
+              wear: Math.min(100, driver.currentTires.wear + Math.floor(Math.random() * 2) + 1),
+              ageLaps: (driver.currentTires.ageLaps || 0) + 1,
+            },
+            fuel: Math.max(0, driver.fuel - (Math.random() * 0.5 + 0.2)),
+          };
+          if (mainDriver && driver.id === mainDriver.id) {
+            newMainDriver = updatedDriver;
+          }
+          return updatedDriver;
+        });
+
         if (Math.random() < 0.1 && updatedDrivers.length >=2) {
             const p1Index = updatedDrivers.findIndex(d => d.position === 1);
             const p2Index = updatedDrivers.findIndex(d => d.position === 2);
-
             if (p1Index !== -1 && p2Index !== -1) {
                 const tempPos = updatedDrivers[p1Index].position;
                 updatedDrivers[p1Index].position = updatedDrivers[p2Index].position;
                 updatedDrivers[p2Index].position = tempPos;
-                // Actual array swap is not needed if components re-sort based on 'position' prop
             }
         }
         
-        // Sort drivers by position for consistent display if DriverCard components are directly mapped
-        // updatedDrivers.sort((a, b) => a.position - b.position);
-
+        // Update mainDriver state if it was affected by the simulation
+        if (newMainDriver) {
+          setMainDriver(newMainDriver);
+        }
 
         return { 
           ...prevData, 
@@ -133,16 +134,11 @@ export default function DashboardPage() {
     }, 5000); 
 
     return () => clearInterval(interval);
-  }, [isLoadingDrivers, raceData.drivers.length, raceData.totalLaps]); // Rerun if driver list changes
+  }, [isLoadingDrivers, raceData.drivers, mainDriver, raceData.totalLaps]);
 
   const handleSettingsChange = (newSettings: Partial<Settings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }));
   };
-
-  useEffect(() => {
-    // Client-side only logic like localStorage could go here.
-    // Kept simple for now.
-  }, []);
 
   if (isLoadingDrivers) {
     return (
@@ -173,43 +169,42 @@ export default function DashboardPage() {
             <TabsTrigger value="competitor" className="text-sm md:text-base"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitor AI</TabsTrigger>
           </TabsList>
           
-          {raceData.drivers.length > 0 && (
-            <FocusSelector 
-              drivers={raceData.drivers} 
-              selectedDriverId={focusedDriverId} 
-              onDriverSelect={setFocusedDriverId} 
-            />
+          {mainDriver && (
+             <div className="p-4 bg-card rounded-lg shadow_ mb-6">
+              <h3 className="text-lg font-medium text-primary font-headline">
+                Main Focus: P{mainDriver.position} - {mainDriver.name} ({mainDriver.team})
+              </h3>
+            </div>
           )}
 
           <TabsContent value="overview">
-            {raceData.drivers.length > 0 ? (
-              <LiveTelemetry drivers={raceData.drivers} settings={settings} focusedDriverId={focusedDriverId} />
+            {mainDriver ? (
+              <LiveTelemetry driver={mainDriver} settings={settings} />
             ) : (
-              !driverLoadError && <p className="text-center text-muted-foreground p-8">No driver data to display.</p>
+              !driverLoadError && <p className="text-center text-muted-foreground p-8">No main driver data to display.</p>
             )}
           </TabsContent>
           <TabsContent value="map">
             {raceData.drivers.length > 0 ? (
               <InteractiveTrackMap 
-                drivers={raceData.drivers} 
+                allDrivers={raceData.drivers} 
+                mainDriver={mainDriver}
                 trackName={raceData.trackName} 
-                focusedDriverId={focusedDriverId}
-                onDriverSelect={setFocusedDriverId}
               />
             ) : (
                !driverLoadError && <p className="text-center text-muted-foreground p-8">Track map unavailable without driver data.</p>
             )}
           </TabsContent>
           <TabsContent value="pitstop">
-            {raceData.drivers.length > 0 ? (
-              <PitStopAdvisor drivers={raceData.drivers} currentLap={raceData.currentLap} />
+            {mainDriver ? (
+              <PitStopAdvisor selectedDriver={mainDriver} currentLap={raceData.currentLap} />
             ) : (
-               !driverLoadError && <p className="text-center text-muted-foreground p-8">Pit advisor unavailable without driver data.</p>
+               !driverLoadError && <p className="text-center text-muted-foreground p-8">Pit advisor unavailable without main driver data.</p>
             )}
           </TabsContent>
           <TabsContent value="competitor">
             {raceData.drivers.length > 0 ? (
-              <CompetitorAnalyzer drivers={raceData.drivers} />
+              <CompetitorAnalyzer allDrivers={raceData.drivers} mainDriver={mainDriver} />
             ) : (
               !driverLoadError && <p className="text-center text-muted-foreground p-8">Competitor analyzer unavailable without driver data.</p>
             )}

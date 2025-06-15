@@ -25,10 +25,11 @@ const AnalyzeCompetitorStrategyClientSchema = z.object({
 });
 
 interface CompetitorAnalyzerProps {
-  drivers: Driver[]; // To pre-fill competitor name
+  allDrivers: Driver[]; 
+  mainDriver: Driver | null;
 }
 
-export function CompetitorAnalyzer({ drivers }: CompetitorAnalyzerProps) {
+export function CompetitorAnalyzer({ allDrivers, mainDriver }: CompetitorAnalyzerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [analysis, setAnalysis] = useState<AnalyzeCompetitorStrategyOutput | null>(null);
   const { toast } = useToast();
@@ -36,29 +37,40 @@ export function CompetitorAnalyzer({ drivers }: CompetitorAnalyzerProps) {
   const form = useForm<AnalyzeCompetitorStrategyInput>({
     resolver: zodResolver(AnalyzeCompetitorStrategyClientSchema),
     defaultValues: {
-      competitorName: "", // Will be set by useEffect
+      competitorName: "",
       historicalData: 'Historically aggressive on tire usage, tends to pit early.',
       currentRaceData: 'Currently on Medium tires, 10 laps old, running P3.',
     },
   });
+  
+  const competitorOptions = allDrivers.filter(d => !mainDriver || d.id !== mainDriver.id);
 
   useEffect(() => {
     const currentFormValues = form.getValues();
-    let defaultCompetitorName = "";
-    if (drivers.length > 1) {
-      defaultCompetitorName = drivers[1].name; // Default to second driver if available
-    } else if (drivers.length > 0) {
-      defaultCompetitorName = drivers[0].name; // Otherwise, first driver
+    let defaultCompetitorName = currentFormValues.competitorName;
+
+    // If no competitor is selected, or selected competitor is now the mainDriver, pick a new default
+    if ((!defaultCompetitorName || (mainDriver && defaultCompetitorName === mainDriver.name)) && competitorOptions.length > 0) {
+      // Try to pick the driver in P2 or the first available competitor
+      const p2Competitor = competitorOptions.find(d => d.position === 2 && (!mainDriver || d.id !== mainDriver.id));
+      if (p2Competitor) {
+        defaultCompetitorName = p2Competitor.name;
+      } else {
+         defaultCompetitorName = competitorOptions[0].name;
+      }
+    } else if (competitorOptions.length === 0) {
+        defaultCompetitorName = ""; // No other competitors
     }
+    
 
     form.reset({
-      ...currentFormValues, // Preserve other potentially user-modified fields
+      ...currentFormValues,
       competitorName: defaultCompetitorName,
-      // Only set these if they are still at their initial default, or if you always want to reset them
-      historicalData: currentFormValues.historicalData === 'Historically aggressive on tire usage, tends to pit early.' && !form.formState.dirtyFields.historicalData ? 'Historically aggressive on tire usage, tends to pit early.' : currentFormValues.historicalData,
-      currentRaceData: currentFormValues.currentRaceData === 'Currently on Medium tires, 10 laps old, running P3.' && !form.formState.dirtyFields.currentRaceData ? 'Currently on Medium tires, 10 laps old, running P3.' : currentFormValues.currentRaceData,
+      historicalData: (form.formState.dirtyFields.historicalData || !defaultCompetitorName) ? currentFormValues.historicalData : 'Historically aggressive on tire usage, tends to pit early.',
+      currentRaceData: (form.formState.dirtyFields.currentRaceData || !defaultCompetitorName) ? currentFormValues.currentRaceData : 'Currently on Medium tires, 10 laps old, running P3.',
     });
-  }, [drivers, form]);
+
+  }, [allDrivers, mainDriver, form]);
 
 
   const onSubmit: SubmitHandler<AnalyzeCompetitorStrategyInput> = async (data) => {
@@ -78,6 +90,22 @@ export function CompetitorAnalyzer({ drivers }: CompetitorAnalyzerProps) {
       setIsLoading(false);
     }
   };
+
+  if (competitorOptions.length === 0 && allDrivers.length > 0) {
+     return (
+      <Card className="shadow-lg_">
+        <CardHeader>
+          <CardTitle className="text-2xl font-headline text-primary flex items-center gap-2">
+            <Users className="w-6 h-6" /> Competitor Strategy Analyzer
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">Only one driver loaded, no other competitors to analyze.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
 
   return (
     <Card className="shadow-lg_">
@@ -99,7 +127,7 @@ export function CompetitorAnalyzer({ drivers }: CompetitorAnalyzerProps) {
                   <FormControl>
                      <select {...field} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
                       <option value="">Select Competitor</option>
-                      {drivers.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                      {competitorOptions.map(d => <option key={d.id} value={d.name}>{d.name} (P{d.position})</option>)}
                      </select>
                   </FormControl>
                   <FormMessage />
@@ -132,7 +160,7 @@ export function CompetitorAnalyzer({ drivers }: CompetitorAnalyzerProps) {
                 </FormItem>
               )}
             />
-            <Button type="submit" disabled={isLoading} className="w-full md:w-auto">
+            <Button type="submit" disabled={isLoading || !form.getValues().competitorName} className="w-full md:w-auto">
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
               Analyze Strategy
             </Button>
