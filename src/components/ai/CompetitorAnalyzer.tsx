@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -35,11 +36,30 @@ export function CompetitorAnalyzer({ drivers }: CompetitorAnalyzerProps) {
   const form = useForm<AnalyzeCompetitorStrategyInput>({
     resolver: zodResolver(AnalyzeCompetitorStrategyClientSchema),
     defaultValues: {
-      competitorName: drivers.length > 1 ? drivers[1].name : (drivers.length > 0 ? drivers[0].name : ""), // Default to second driver if available
+      competitorName: "", // Will be set by useEffect
       historicalData: 'Historically aggressive on tire usage, tends to pit early.',
       currentRaceData: 'Currently on Medium tires, 10 laps old, running P3.',
     },
   });
+
+  useEffect(() => {
+    const currentFormValues = form.getValues();
+    let defaultCompetitorName = "";
+    if (drivers.length > 1) {
+      defaultCompetitorName = drivers[1].name; // Default to second driver if available
+    } else if (drivers.length > 0) {
+      defaultCompetitorName = drivers[0].name; // Otherwise, first driver
+    }
+
+    form.reset({
+      ...currentFormValues, // Preserve other potentially user-modified fields
+      competitorName: defaultCompetitorName,
+      // Only set these if they are still at their initial default, or if you always want to reset them
+      historicalData: currentFormValues.historicalData === 'Historically aggressive on tire usage, tends to pit early.' && !form.formState.dirtyFields.historicalData ? 'Historically aggressive on tire usage, tends to pit early.' : currentFormValues.historicalData,
+      currentRaceData: currentFormValues.currentRaceData === 'Currently on Medium tires, 10 laps old, running P3.' && !form.formState.dirtyFields.currentRaceData ? 'Currently on Medium tires, 10 laps old, running P3.' : currentFormValues.currentRaceData,
+    });
+  }, [drivers, form]);
+
 
   const onSubmit: SubmitHandler<AnalyzeCompetitorStrategyInput> = async (data) => {
     setIsLoading(true);

@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -39,15 +40,40 @@ export function PitStopAdvisor({ drivers, currentLap: raceCurrentLap }: PitStopA
   const form = useForm<SuggestPitStopsInput>({
     resolver: zodResolver(SuggestPitStopsClientSchema),
     defaultValues: {
-      driverName: drivers.length > 0 ? drivers[0].name : '',
-      currentLap: raceCurrentLap || 1,
+      driverName: '', // Will be set by useEffect
+      currentLap: 1,
       tireCondition: '',
       fuelLevel: 70,
-      racePosition: drivers.length > 0 ? drivers[0].position : 1,
+      racePosition: 1,
       weatherConditions: 'Dry',
       competitorStrategies: '',
     },
   });
+
+  useEffect(() => {
+    const currentFormValues = form.getValues();
+    const newDefaultValues: Partial<SuggestPitStopsInput> = {
+      // Preserve existing values unless they need to be updated based on props
+      tireCondition: currentFormValues.tireCondition,
+      fuelLevel: currentFormValues.fuelLevel,
+      weatherConditions: currentFormValues.weatherConditions,
+      competitorStrategies: currentFormValues.competitorStrategies,
+    };
+
+    if (drivers.length > 0) {
+      newDefaultValues.driverName = currentFormValues.driverName && drivers.some(d => d.name === currentFormValues.driverName) ? currentFormValues.driverName : drivers[0].name;
+      newDefaultValues.racePosition = drivers.find(d => d.name === newDefaultValues.driverName)?.position || drivers[0].position;
+    } else {
+      newDefaultValues.driverName = '';
+      newDefaultValues.racePosition = 1;
+    }
+    
+    newDefaultValues.currentLap = raceCurrentLap || currentFormValues.currentLap || 1;
+
+    form.reset(newDefaultValues);
+
+  }, [drivers, raceCurrentLap, form]);
+
 
   const onSubmit: SubmitHandler<SuggestPitStopsInput> = async (data) => {
     setIsLoading(true);
@@ -66,6 +92,23 @@ export function PitStopAdvisor({ drivers, currentLap: raceCurrentLap }: PitStopA
       setIsLoading(false);
     }
   };
+  
+  // Update racePosition when driverName changes
+  useEffect(() => {
+    const subscription = form.watch((value, { name }) => {
+      if (name === 'driverName' && value.driverName) {
+        const selectedDriver = drivers.find(d => d.name === value.driverName);
+        if (selectedDriver) {
+          form.setValue('racePosition', selectedDriver.position, { shouldValidate: true });
+          // Optionally update tire condition if you have that data per driver
+          // form.setValue('tireCondition', `${selectedDriver.currentTires.type} - ${selectedDriver.currentTires.wear}% wear`);
+          // form.setValue('fuelLevel', selectedDriver.fuel);
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form, drivers]);
+
 
   return (
     <Card className="shadow-lg_">
@@ -196,3 +239,4 @@ export function PitStopAdvisor({ drivers, currentLap: raceCurrentLap }: PitStopA
     </Card>
   );
 }
+
