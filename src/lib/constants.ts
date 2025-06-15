@@ -9,19 +9,12 @@ export const DRIVER_COLORS = [ // Fallback colors
   '#FFB6C1', '#87CEEB'
 ];
 
-// MOCK_DRIVERS is no longer the primary source for page.tsx, but can be kept for testing or other components if needed.
-export const MOCK_DRIVERS: Driver[] = [
-  { id: '1', driver_number: 1, name: 'Max Verstappen', shortName: 'VER', team: 'Red Bull Racing', position: 1, currentTires: { type: 'Medium', wear: 25, ageLaps: 10 }, lastLapTime: '1:28.345', bestLapTime: '1:27.990', fuel: 70, pitStops: 1, color: DRIVER_COLORS[0] },
-  { id: '2', driver_number: 44, name: 'Lewis Hamilton', shortName: 'HAM', team: 'Mercedes', position: 2, currentTires: { type: 'Hard', wear: 15, ageLaps: 12 }, lastLapTime: '1:28.500', bestLapTime: '1:28.110', fuel: 75, pitStops: 1, color: DRIVER_COLORS[1] },
-  // ... (other mock drivers can be kept or removed)
-];
-
-// MOCK_RACE_DATA is still used for overall race context if not fetched from API
-export const MOCK_RACE_DATA: Omit<RaceData, 'drivers'> = {
-  totalLaps: 57,
-  currentLap: 1, // Initial lap, will be incremented by simulation
-  trackName: 'Fetching Track...', // Will be updated if we fetch meeting details later
-  weather: 'Sunny', // Default weather
+// MOCK_RACE_DATA is now primarily for fallback initial structure if API fails early.
+export const FALLBACK_RACE_DATA: Omit<RaceData, 'drivers' | 'sessionKey' | 'meetingKey'> = {
+  totalLaps: 57, // Typical race length, will be updated from API if possible
+  currentLap: 0,
+  trackName: 'Fetching Track Info...',
+  weather: 'Sunny',
   safetyCar: 'None',
 };
 
@@ -46,3 +39,19 @@ export const WEATHER_ICONS: Record<WeatherCondition, React.ElementType> = {
   Rainy: CloudRain,
   'Heavy Rain': CloudLightning,
 };
+
+export const TIRE_WEAR_RATES: Record<TireType, number> = {
+  Soft: 3.0, // Estimated % wear per lap
+  Medium: 2.0,
+  Hard: 1.2,
+  Intermediate: 2.8, // Higher wear for inters usually
+  Wet: 3.8,         // Higher wear for wets
+};
+
+export const FUEL_CONSUMPTION_PER_LAP = 2.5; // Estimated % fuel per lap, can be adjusted
+
+// OpenF1 API base URL
+export const OPENF1_API_BASE_URL = 'https://api.openf1.org/v1';
+
+// Default total laps if not found from API (e.g. for some historical sessions)
+export const DEFAULT_TOTAL_LAPS = 57;
