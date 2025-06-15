@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Header } from '@/components/layout/Header';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { LiveTelemetry } from '@/components/dashboard/LiveTelemetry';
-import { InteractiveTrackMap } from '@/components/dashboard/InteractiveTrackMap';
+import { PitStopPerformancePanel } from '@/components/dashboard/PitStopPerformancePanel';
 import { PitStopAdvisor } from '@/components/ai/PitStopAdvisor';
 import { CompetitorAnalyzer } from '@/components/ai/CompetitorAnalyzer';
 import { DEFAULT_SETTINGS, MOCK_RACE_DATA, DRIVER_COLORS } from '@/lib/constants';
@@ -56,6 +56,7 @@ export default function DashboardPage() {
   const [pitStopSuggestion, setPitStopSuggestion] = useState<SuggestPitStopsOutput | null>(null);
   const [isPitStopLoading, setIsPitStopLoading] = useState(false);
   const [lastPitStopCallParams, setLastPitStopCallParams] = useState<SuggestPitStopsInput | null>(null);
+  const [showPitStopWarning, setShowPitStopWarning] = useState(false); // New state for warning
   const { toast } = useToast();
 
   const [lastSuccessfulAiCallData, setLastSuccessfulAiCallData] = useState<{
@@ -91,8 +92,8 @@ export default function DashboardPage() {
           position: index + 1,
           currentTires: {
             type: TIRE_TYPES[index % TIRE_TYPES.length],
-            wear: Math.floor(Math.random() * 30) + 5,
-            ageLaps: Math.floor(Math.random() * 10) + 1,
+            wear: 0, // Start with 0% wear
+            ageLaps: 0, // Start with 0 laps on current set
           },
           lastLapTime: null,
           bestLapTime: null,
@@ -175,17 +176,55 @@ export default function DashboardPage() {
            if (foundMainDriver) setMainDriver(foundMainDriver);
         }
 
+        // Check for planned pit stops and execute if current lap matches
+        const finalDrivers = updatedDrivers.map(driver => {
+          if (driver.plannedPitStop && prevData.currentLap + 1 >= driver.plannedPitStop.targetLap) {
+            toast({
+              title: "Pit Stop Executed!",
+              description: `${driver.name} is pitting for ${driver.plannedPitStop.newTireCompound} tires.`,
+            });
+            return {
+              ...driver,
+              currentTires: {
+                type: driver.plannedPitStop.newTireCompound,
+                wear: 0, // Fresh tires
+                ageLaps: 0,
+              },
+              pitStops: driver.pitStops + 1,
+              plannedPitStop: undefined, // Clear the planned pit stop
+            };
+          }
+          return driver;
+        });
 
-        return { 
-          ...prevData, 
-          drivers: updatedDrivers,
-          currentLap: Math.min(prevData.totalLaps, prevData.currentLap + (Math.random() < 0.3 ? 1:0)),
+        return {
+          ...prevData,
+          drivers: finalDrivers,
+          currentLap: Math.min(prevData.totalLaps, prevData.currentLap + 1), // Always increment lap for consistent testing
          };
       });
-    }, 5000); 
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [isLoadingDrivers, raceData.drivers, mainDriver, raceData.totalLaps]);
+
+  // Effect to update pit stop warning based on mainDriver's tire wear
+  useEffect(() => {
+    if (mainDriver && mainDriver.currentTires.wear > 80) {
+      setShowPitStopWarning(true);
+    } else {
+      setShowPitStopWarning(false);
+    }
+  }, [mainDriver?.currentTires.wear]); // Only re-run when mainDriver's tire wear changes
+
+  // Effect to update pit stop warning based on mainDriver's tire wear
+  useEffect(() => {
+    if (mainDriver && mainDriver.currentTires.wear > 80) {
+      setShowPitStopWarning(true);
+    } else {
+      setShowPitStopWarning(false);
+    }
+  }, [mainDriver?.currentTires.wear]); // Only re-run when mainDriver's tire wear changes
 
   const fetchPitStopAdvice = useCallback(async (driverForAdvice: Driver, currentLapForAdvice: number) => {
     if (!driverForAdvice || currentLapForAdvice <= 0 || aiCallCoolDown) return;
@@ -263,6 +302,67 @@ export default function DashboardPage() {
     setSettings(prev => ({ ...prev, ...newSettings }));
   };
 
+  const handlePlanPitStop = useCallback((compound: TireType, laps: number) => {
+    if (!mainDriver) return;
+
+    // Calculate the target lap for the pit stop
+    const targetPitStopLap = raceData.currentLap + laps;
+
+    setRaceData(prevData => {
+      const updatedDrivers = prevData.drivers.map(driver => {
+        if (driver.id === mainDriver.id) {
+          const updatedMainDriver = {
+            ...driver,
+            plannedPitStop: {
+              targetLap: targetPitStopLap,
+              newTireCompound: compound,
+            },
+          };
+          // Immediately update mainDriver state
+          setMainDriver(updatedMainDriver);
+          return updatedMainDriver;
+        }
+        return driver;
+      });
+      return { ...prevData, drivers: updatedDrivers };
+    });
+
+    toast({
+      title: "Pit Stop Planned!",
+      description: `${mainDriver.name} will pit for ${compound} tires at lap ${targetPitStopLap}.`,
+    });
+
+  }, [mainDriver, setRaceData, toast, setMainDriver]);
+
+  const handleCancelPitStop = useCallback(() => {
+    if (!mainDriver) return;
+
+    setRaceData(prevData => {
+      const updatedDrivers = prevData.drivers.map(driver => {
+        if (driver.id === mainDriver.id) {
+          return {
+            ...driver,
+            plannedPitStop: undefined, // Clear the planned pit stop
+          };
+        }
+        return driver;
+      });
+      return { ...prevData, drivers: updatedDrivers };
+    });
+    // Also update mainDriver state immediately after canceling
+    setMainDriver(prevMainDriver => {
+      if (prevMainDriver && prevMainDriver.id === mainDriver.id) {
+        return { ...prevMainDriver, plannedPitStop: undefined };
+      }
+      return prevMainDriver;
+    });
+
+    toast({
+      title: "Pit Stop Canceled!",
+      description: `The planned pit stop for ${mainDriver.name} has been canceled.`,
+    });
+  }, [mainDriver, setRaceData, toast, setMainDriver]);
+
   if (isLoadingDrivers) {
     return (
       <div className="flex flex-col min-h-screen bg-background items-center justify-center">
@@ -287,7 +387,12 @@ export default function DashboardPage() {
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
             <TabsTrigger value="overview" className="text-sm md:text-base"><ListChecks className="w-4 h-4 mr-2 hidden md:inline" />Telemetry & AI</TabsTrigger>
-            <TabsTrigger value="map" className="text-sm md:text-base"><MapPinIcon className="w-4 h-4 mr-2 hidden md:inline" />Track Map</TabsTrigger>
+            <TabsTrigger value="pitStopPerformance" className="text-sm md:text-base relative">
+              {showPitStopWarning && (
+                <AlertTriangle className="h-4 w-4 text-yellow-500 absolute -top-1 -right-1" />
+              )}
+              Pit Stop Performance
+            </TabsTrigger>
             <TabsTrigger value="pitstop" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Pit Details</TabsTrigger>
             <TabsTrigger value="competitor" className="text-sm md:text-base"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitor AI</TabsTrigger>
           </TabsList>
@@ -313,15 +418,16 @@ export default function DashboardPage() {
               !driverLoadError && <p className="text-center text-muted-foreground p-8">No main driver data to display.</p>
             )}
           </TabsContent>
-          <TabsContent value="map">
-            {raceData.drivers.length > 0 ? (
-              <InteractiveTrackMap 
-                allDrivers={raceData.drivers} 
+          <TabsContent value="pitStopPerformance">
+            {mainDriver ? (
+              <PitStopPerformancePanel
                 mainDriver={mainDriver}
-                trackName={raceData.trackName} 
+                currentLap={raceData.currentLap}
+                onPlanPitStop={handlePlanPitStop}
+                onCancelPitStop={handleCancelPitStop}
               />
             ) : (
-               !driverLoadError && <p className="text-center text-muted-foreground p-8">Track map unavailable without driver data.</p>
+              !driverLoadError && <p className="text-center text-muted-foreground p-8">Pit Stop Performance unavailable without main driver data.</p>
             )}
           </TabsContent>
           <TabsContent value="pitstop">

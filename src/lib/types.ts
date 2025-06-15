@@ -29,6 +29,10 @@ export interface Driver {
   color: string; // Hex color for UI representation (from team_colour API)
   driver_number: number; // From API
   lapHistory?: LapHistoryEntry[];
+  plannedPitStop?: {
+    targetLap: number;
+    newTireCompound: TireType;
+  };
 }
 
 export interface RaceData {
@@ -74,7 +78,7 @@ export interface SuggestPitStopsInput {
   fuelLevel: number;
   racePosition: number;
   weatherConditions: string;
-  competitorStrategies?: string;
+  competitorStrategies: string;
 }
 
 export interface SuggestPitStopsOutput {
