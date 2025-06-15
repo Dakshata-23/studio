@@ -23,7 +23,7 @@ const TeamDriverStatusSchema = z.object({
   fuelLevel: z.number().min(0).max(100).describe('Current fuel level percentage (0-100).'),
   totalDriveTimeSeconds: z.number().nonnegative().describe('Total cumulative time driven by this driver in the race so far, in seconds.'),
   isCurrentlyDriving: z.boolean().describe('Whether this driver is currently in the car.'),
-  currentLap: z.number().int().nonnegative().describe('The lap number this driver is currently on or has last completed.') // Changed from .positive()
+  currentLap: z.number().int().nonnegative().describe('The lap number this driver is currently on or has last completed.')
 });
 
 // Define the input schema for the Le Mans strategy flow
@@ -43,7 +43,7 @@ export type SuggestLeMansStrategyInput = z.infer<typeof SuggestLeMansStrategyInp
 const SuggestLeMansStrategyOutputSchema = z.object({
   suggestedActions: z.string().describe('Detailed suggested actions: who should pit, target pit lap, tire compound, and which driver should take over. Example: "Driver A should pit on lap 85 for new Medium tires. Driver B to take over the stint."'),
   strategicReasoning: z.string().describe('Comprehensive reasoning behind the suggestion, considering driver time limits, tire wear, fuel, race progression, weather, and overall 24-hour strategy.'),
-  nextOptimalPitLap: z.number().int().positive().optional().describe('An estimated optimal lap number for the next planned pit stop for the team.'),
+  nextOptimalPitLap: z.number().int().optional().describe('An estimated optimal lap number for the next planned pit stop for the team. Should be a positive integer if provided.'),
   recommendedNextDriverName: z.string().optional().describe('The name of the driver recommended to drive the next stint if a swap is suggested now.')
 });
 export type SuggestLeMansStrategyOutput = z.infer<typeof SuggestLeMansStrategyOutputSchema>;
@@ -97,7 +97,7 @@ Based on ALL the above information, provide your strategic advice:
     If no immediate pit stop is needed, state that and suggest a monitoring plan or target for the next stop.
     Example: "Continue with Driver A. Monitor tire wear closely. Target pit window between lap X and Y. Driver C is next scheduled."
 - **Strategic Reasoning:** Explain WHY this is the best course of action. Justify your recommendations regarding driver choice, tire compound, and timing. Explicitly mention how it aligns with managing the 14-hour drive time limits.
-- **Next Optimal Pit Lap (Optional):** If applicable, provide an estimated lap for the team's next pit stop.
+- **Next Optimal Pit Lap (Optional):** If applicable, provide an estimated POSITIVE INTEGER lap number for the team's next pit stop.
 - **Recommended Next Driver Name (Optional):** If suggesting a driver swap, clearly state who should drive next.
 
 Focus on a clear, actionable, and well-reasoned plan for the team. Prioritize compliance with driver hour regulations.
@@ -116,3 +116,4 @@ const suggestLeMansStrategyFlow = ai.defineFlow( // Renamed flow
   }
 );
 
+    
