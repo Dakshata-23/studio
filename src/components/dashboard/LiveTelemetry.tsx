@@ -39,28 +39,32 @@ export function LiveTelemetry({ driver, settings, pitStopSuggestion, isPitStopLo
               <Brain className="w-5 h-5" /> AI Pit Stop Advisor
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 min-h-[12rem]"> {/* Added min-h-[12rem] here */}
-            {isPitStopLoading && (
-              <div className="flex items-center text-muted-foreground">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                <span>Updating AI pit stop advice...</span>
-              </div>
-            )}
-            {!isPitStopLoading && !pitStopSuggestion && (
-              <p className="text-muted-foreground">No pit stop suggestion available yet. Waiting for data...</p>
-            )}
-            {pitStopSuggestion && !isPitStopLoading && (
-              <Alert className="bg-accent/10 border-accent/50 text-accent-foreground">
-                <Sparkles className="h-5 w-5 text-accent" />
-                <AlertTitle className="font-headline text-lg text-accent">Live AI Suggestion</AlertTitle>
-                <AlertDescription className="space-y-2 mt-2">
-                  <p><strong>Suggested Pit Stop Lap:</strong> {pitStopSuggestion.suggestedPitStopLap}</p>
-                  <p><strong>Reasoning:</strong> {pitStopSuggestion.reasoning}</p>
-                  {pitStopSuggestion.alternativeStrategies && <p><strong>Alternatives:</strong> {pitStopSuggestion.alternativeStrategies}</p>}
-                </AlertDescription>
-              </Alert>
-            )}
-             <p className="text-xs text-muted-foreground pt-2">Advice updates automatically based on race conditions.</p>
+          <CardContent className="h-[14rem] flex flex-col justify-between">
+            <div className="space-y-3 overflow-y-auto pr-2 flex-grow"> {/* flex-grow allows this div to take available space */}
+              {isPitStopLoading && (
+                <div className="flex items-center text-muted-foreground">
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  <span>Updating AI pit stop advice...</span>
+                </div>
+              )}
+              {!isPitStopLoading && !pitStopSuggestion && (
+                <p className="text-muted-foreground">No pit stop suggestion available yet. Waiting for data...</p>
+              )}
+              {pitStopSuggestion && !isPitStopLoading && (
+                <Alert className="bg-accent/10 border-accent/50 text-accent-foreground">
+                  <Sparkles className="h-5 w-5 text-accent" />
+                  <AlertTitle className="font-headline text-lg text-accent">Live AI Suggestion</AlertTitle>
+                  <AlertDescription className="space-y-2 mt-2">
+                    <p><strong>Suggested Pit Stop Lap:</strong> {pitStopSuggestion.suggestedPitStopLap}</p>
+                    <p><strong>Reasoning:</strong> {pitStopSuggestion.reasoning}</p>
+                    {pitStopSuggestion.alternativeStrategies && <p><strong>Alternatives:</strong> {pitStopSuggestion.alternativeStrategies}</p>}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground pt-2 border-t border-border mt-2 shrink-0"> {/* mt-2 ensures some space, shrink-0 prevents it from growing */}
+              Advice updates automatically based on race conditions.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -74,4 +78,3 @@ export function LiveTelemetry({ driver, settings, pitStopSuggestion, isPitStopLo
     </div>
   );
 }
-
