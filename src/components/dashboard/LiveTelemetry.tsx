@@ -1,26 +1,28 @@
 
 'use client';
 
-import type { Driver, Settings, SuggestPitStopsOutput } from '@/lib/types';
+import type { Driver, Settings, SuggestPitStopsOutput, LapHistoryEntry } from '@/lib/types';
 import { DriverCard } from './DriverCard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Brain, Loader2, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PerformanceCharts } from './PerformanceCharts';
 
 interface LiveTelemetryProps {
   driver: Driver | null;
   settings: Settings;
   pitStopSuggestion: SuggestPitStopsOutput | null;
   isPitStopLoading: boolean;
+  lapHistory: LapHistoryEntry[];
 }
 
-export function LiveTelemetry({ driver, settings, pitStopSuggestion, isPitStopLoading }: LiveTelemetryProps) {
+export function LiveTelemetry({ driver, settings, pitStopSuggestion, isPitStopLoading, lapHistory }: LiveTelemetryProps) {
   if (!driver) {
     return <p className="text-center text-muted-foreground p-8">No driver data available to display.</p>;
   }
 
   return (
-    <div className="py-6">
+    <div className="space-y-6 py-6">
       <div className="px-4 md:px-0">
         <h2 className="text-3xl font-bold mb-2 text-primary font-headline">Live Telemetry & AI Pit Advisor</h2>
         <p className="mb-6 text-lg text-accent">Showing data for: {driver.name}</p>
@@ -62,6 +64,14 @@ export function LiveTelemetry({ driver, settings, pitStopSuggestion, isPitStopLo
           </CardContent>
         </Card>
       </div>
+      
+      <PerformanceCharts
+        lapHistory={lapHistory}
+        tireWear={driver.currentTires.wear}
+        fuel={driver.fuel}
+      />
+
     </div>
   );
 }
+

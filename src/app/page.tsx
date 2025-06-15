@@ -9,7 +9,7 @@ import { InteractiveTrackMap } from '@/components/dashboard/InteractiveTrackMap'
 import { PitStopAdvisor } from '@/components/ai/PitStopAdvisor';
 import { CompetitorAnalyzer } from '@/components/ai/CompetitorAnalyzer';
 import { DEFAULT_SETTINGS, MOCK_RACE_DATA, DRIVER_COLORS } from '@/lib/constants';
-import type { RaceData, Settings, Driver, OpenF1Driver, TireType, SuggestPitStopsInput, SuggestPitStopsOutput } from '@/lib/types';
+import type { RaceData, Settings, Driver, OpenF1Driver, TireType, SuggestPitStopsInput, SuggestPitStopsOutput, LapHistoryEntry } from '@/lib/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Brain, Users, MapPinIcon, ListChecks, Loader2, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -26,7 +26,23 @@ const INITIAL_RACE_DATA: RaceData = {
   safetyCar: MOCK_RACE_DATA.safetyCar,
 };
 
+const MAX_LAP_HISTORY = 20;
+
 const TIRE_TYPES: TireType[] = ['Soft', 'Medium', 'Hard'];
+
+const parseLapTimeToSeconds = (lapTime: string | null): number | null => {
+  if (!lapTime) return null;
+  const parts = lapTime.split(':');
+  if (parts.length !== 2) return null;
+  
+  const minutes = parseInt(parts[0], 10);
+  const secondsAndMillis = parseFloat(parts[1]);
+
+  if (isNaN(minutes) || isNaN(secondsAndMillis)) return null;
+  
+  return minutes * 60 + secondsAndMillis;
+};
+
 
 export default function DashboardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -73,6 +89,7 @@ export default function DashboardPage() {
           bestLapTime: null,
           fuel: Math.floor(Math.random() * 30) + 70,
           pitStops: Math.floor(Math.random() * 2),
+          lapHistory: [],
         }));
 
         setRaceData(prev => ({ ...prev, drivers: transformedDrivers }));
@@ -99,19 +116,34 @@ export default function DashboardPage() {
         if (prevData.drivers.length === 0) return prevData;
 
         let newMainDriver: Driver | null = null;
+        const currentLapForHistory = prevData.currentLap;
 
         const updatedDrivers = prevData.drivers.map(driver => {
+          const newLapTimeStr = driver.lastLapTime ? `1:${(Math.random() * 10 + 20).toFixed(3).padStart(6, '0')}` : `1:${(Math.random() * 10 + 25).toFixed(3).padStart(6, '0')}`;
+          
           const updatedDriver = {
             ...driver,
-            lastLapTime: driver.lastLapTime ? `1:${(Math.random() * 10 + 20).toFixed(3).padStart(6, '0')}` : `1:${(Math.random() * 10 + 25).toFixed(3).padStart(6, '0')}`,
+            lastLapTime: newLapTimeStr,
             currentTires: {
               ...driver.currentTires,
               wear: Math.min(100, driver.currentTires.wear + Math.floor(Math.random() * 2) + 1),
               ageLaps: (driver.currentTires.ageLaps || 0) + 1,
             },
             fuel: Math.max(0, driver.fuel - (Math.random() * 0.5 + 0.2)),
+            lapHistory: [...(driver.lapHistory || [])],
           };
-          if (mainDriver && driver.id === mainDriver.id) {
+
+          if (mainDriver && driver.id === mainDriver.id && currentLapForHistory > 0) {
+            const newLapTimeSec = parseLapTimeToSeconds(newLapTimeStr);
+            if (newLapTimeSec !== null) {
+              const newHistoryEntry: LapHistoryEntry = { 
+                lap: currentLapForHistory, 
+                time: newLapTimeSec,
+                tireWear: updatedDriver.currentTires.wear,
+                fuel: updatedDriver.fuel,
+              };
+              updatedDriver.lapHistory = [...updatedDriver.lapHistory, newHistoryEntry].slice(-MAX_LAP_HISTORY);
+            }
             newMainDriver = updatedDriver;
           }
           return updatedDriver;
@@ -129,7 +161,13 @@ export default function DashboardPage() {
         
         if (newMainDriver) {
           setMainDriver(newMainDriver);
+        } else if (mainDriver && !newMainDriver) {
+          // If mainDriver was set but not updated (e.g. it's not in updatedDrivers anymore, which shouldn't happen here)
+          // For safety, find it in updatedDrivers
+           const foundMainDriver = updatedDrivers.find(d => d.id === mainDriver.id);
+           if (foundMainDriver) setMainDriver(foundMainDriver);
         }
+
 
         return { 
           ...prevData, 
@@ -161,8 +199,8 @@ export default function DashboardPage() {
       const tireWearDiff = Math.abs(driver.currentTires.wear - (lastPitStopCallParams.tireCondition.match(/(\d+)% wear/)?.[1] ? parseFloat(lastPitStopCallParams.tireCondition.match(/(\d+)% wear/)![1]) : 0));
       const fuelDiff = Math.abs(params.fuelLevel - lastPitStopCallParams.fuelLevel);
 
-      if (sameLap && tireWearDiff < 5 && fuelDiff < 5) {
-        // Data hasn't changed enough on the same lap
+      if (sameLap && tireWearDiff < 5 && fuelDiff < 5 && pitStopSuggestion) {
+        // Data hasn't changed enough on the same lap, and we have a suggestion
         return;
       }
     }
@@ -184,7 +222,7 @@ export default function DashboardPage() {
     } finally {
       setIsPitStopLoading(false);
     }
-  }, [raceData.weather, toast, lastPitStopCallParams]);
+  }, [raceData.weather, toast, lastPitStopCallParams, pitStopSuggestion]);
 
   useEffect(() => {
     if (mainDriver && raceData.currentLap > 0 && !isLoadingDrivers) {
@@ -241,6 +279,7 @@ export default function DashboardPage() {
                 settings={settings} 
                 pitStopSuggestion={pitStopSuggestion}
                 isPitStopLoading={isPitStopLoading}
+                lapHistory={mainDriver.lapHistory || []}
               />
             ) : (
               !driverLoadError && <p className="text-center text-muted-foreground p-8">No main driver data to display.</p>

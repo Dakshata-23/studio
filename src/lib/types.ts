@@ -8,6 +8,13 @@ export interface TireStatus {
   ageLaps?: number; // Optional: Laps on current set
 }
 
+export interface LapHistoryEntry {
+  lap: number;
+  time: number; // in seconds
+  tireWear?: number;
+  fuel?: number;
+}
+
 export interface Driver {
   id: string; // Will use driver_number from API
   name: string;
@@ -21,6 +28,7 @@ export interface Driver {
   pitStops: number;
   color: string; // Hex color for UI representation (from team_colour API)
   driver_number: number; // From API
+  lapHistory?: LapHistoryEntry[];
 }
 
 export interface RaceData {
@@ -74,3 +82,4 @@ export interface SuggestPitStopsOutput {
   reasoning: string;
   alternativeStrategies: string;
 }
+
