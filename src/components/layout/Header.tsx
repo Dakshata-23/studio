@@ -12,7 +12,7 @@ export function Header({ onToggleSettings }: HeaderProps) {
         <div className="flex items-center gap-2">
           <BarChart3 className="h-8 w-8 text-primary" />
           <h1 className="text-2xl font-bold text-primary font-headline">
-            F1 Strategist
+            Race Strategist
           </h1>
         </div>
         <Button variant="ghost" size="icon" onClick={onToggleSettings} aria-label="Open settings panel">

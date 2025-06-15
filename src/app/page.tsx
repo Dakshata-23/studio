@@ -389,7 +389,7 @@ export default function DashboardPage() {
     return (
       <div className="flex flex-col min-h-screen bg-background items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="mt-4 text-lg text-foreground">Loading F1 Driver Data...</p>
+        <p className="mt-4 text-lg text-foreground">Loading Le Mans Driver Data...</p>
       </div>
     );
   }
@@ -490,7 +490,7 @@ export default function DashboardPage() {
         onSettingsChange={handleSettingsChange}
       />
       <footer className="py-6 text-center text-sm text-muted-foreground border-t">
-        F1 Strategist - Built with Next.js, Tailwind CSS, and Genkit AI. Data from OpenF1 API.
+        Race Strategist - Built with Next.js, Tailwind CSS, and Genkit AI. Data from OpenF1 API.
       </footer>
     </div>
   );

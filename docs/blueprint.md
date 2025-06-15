@@ -1,4 +1,4 @@
-# **App Name**: F1 Strategist
+# **App Name**: Race Strategist
 
 ## Core Features:
 

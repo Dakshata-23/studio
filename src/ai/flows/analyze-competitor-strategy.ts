@@ -46,7 +46,7 @@ const prompt = ai.definePrompt({
   name: 'analyzeCompetitorStrategyPrompt',
   input: {schema: AnalyzeCompetitorStrategyInputSchema},
   output: {schema: AnalyzeCompetitorStrategyOutputSchema},
-  prompt: `You are an expert F1 strategist. Analyze the competitor's strategy based on the following data:
+  prompt: `You are an expert Race Strategist. Analyze the competitor's strategy based on the following data:
 
 Competitor Name: {{{competitorName}}}
 Historical Data: {{{historicalData}}}

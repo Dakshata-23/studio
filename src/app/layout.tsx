@@ -11,7 +11,7 @@ const fontInter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'F1 Strategist',
+  title: 'Race Strategist',
   description: 'Live gaming strategies for F1 gaming.',
 };
 
