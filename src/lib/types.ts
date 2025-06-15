@@ -2,6 +2,14 @@
 export type TireType = 'Soft' | 'Medium' | 'Hard' | 'Intermediate' | 'Wet';
 export type WeatherCondition = 'Sunny' | 'Cloudy' | 'Rainy' | 'Heavy Rain';
 
+export type TirePosition = 'Front Left' | 'Front Right' | 'Rear Left' | 'Rear Right';
+
+export interface DriverInfo {
+  name: string;
+  gap?: string; // e.g., "+1.2s" or "-0.8s"
+  action?: string; // e.g., "Lap", "Defend"
+}
+
 export interface TireStatus {
   type: TireType;
   wear: number; // Percentage 0-100
@@ -29,9 +37,15 @@ export interface Driver {
   pitStops: number;
   color: string; // Hex color for UI representation (from team_colour API)
   driver_number: number; // From API
-  lapHistory: LapHistoryEntry[]; // Changed from optional
-  // Fields to store raw lap data for best lap calculation
+  lapHistory?: LapHistoryEntry[];
+  plannedPitStop?: {
+    targetLap: number;
+    newTireCompound: TireType;
+  };
   allLapsData?: OpenF1Lap[];
+  totalDriveTimeSeconds: number;
+  isDriving: boolean;
+
 }
 
 export interface RaceData {
@@ -45,6 +59,9 @@ export interface RaceData {
   meetingKey: number | null;
   sessionName?: string;
   countryName?: string;
+  raceTimeElapsedSeconds: number;
+  totalRaceDurationSeconds: number;
+
 }
 
 export interface Settings {
@@ -52,6 +69,7 @@ export interface Settings {
   showFuelLevel: boolean;
   showTireWear: boolean;
   aiAssistanceLevel: 'basic' | 'advanced';
+  simulationSpeedFactor: number;
 }
 
 // For OpenF1 API response structures
@@ -157,7 +175,60 @@ export interface OpenF1RaceControl {
 }
 
 
-// Copied from ai/flows/suggest-pit-stops.ts for easier import in page.tsx
+// Copied from ai/flows/suggest-le-mans-strategy.ts for easier import in page.tsx
+// Note: This is duplicated. Ideally, it should be imported directly from the flow.
+export type DriverStatus = {
+  name: string;
+  currentTireType: TireType;
+  currentTireAgeLaps: number;
+  currentTireWear: number; // 0-100%
+  fuelLevel: number; // 0-100%
+  totalDriveTimeSeconds: number;
+  isCurrentlyDriving: boolean;
+  currentLap: number; // Driver's current lap, can be different from raceCurrentLap if just pitted
+};
+
+export type SuggestLeMansStrategyInput = {
+  teamDriverStatuses: DriverStatus[];
+  raceCurrentLap: number;
+  raceTotalLaps: number; // e.g. ~350-390 for Le Mans
+  raceTimeElapsedSeconds: number;
+  totalRaceDurationSeconds: number; // e.g., 24 hours = 86400 seconds
+  weatherConditions: WeatherCondition;
+  trackName: string;
+  safetyCarStatus: 'None' | 'Deployed' | 'Virtual';
+};
+
+export type SuggestLeMansStrategyOutput = {
+  suggestedActions: string; // Overall summary of actions (e.g., "Pit Driver B in 2 laps for Mediums, Driver A continue stint.")
+  strategicReasoning: string;
+  nextOptimalPitLap?: number; // For the team overall or specific driver if implied
+  recommendedTireType?: TireType;
+  driverSpecificSuggestions?: Array<{
+    driverName: string;
+    action: string; // e.g. "Pit in 3 laps", "Extend stint", "Change to Soft tires"
+    reasoning?: string;
+  }>;
+};
+
+// This type is currently a duplicate of the one in analyze-competitor-strategy.ts.
+// Consider a shared types file if more AI flows use similar structures.
+export interface AnalyzeCompetitorStrategyInput {
+  competitorName: string;
+  historicalData: string;
+  currentRaceData: string;
+}
+
+export interface AnalyzeCompetitorStrategyOutput {
+  strategySummary: string;
+  tireCompound: TireType;
+  tireAgeLaps: number;
+  tirePosition: TirePosition; // Assuming this can be determined.
+  driverInFront?: DriverInfo;
+  driverInBack?: DriverInfo;
+}
+
+// Old F1 Pit Stop types, kept for reference if needed, but Le Mans uses the above
 export interface SuggestPitStopsInput {
   driverName: string;
   currentLap: number;
@@ -165,7 +236,7 @@ export interface SuggestPitStopsInput {
   fuelLevel: number;
   racePosition: number;
   weatherConditions: string;
-  competitorStrategies?: string;
+  competitorStrategies: string;
 }
 
 export interface SuggestPitStopsOutput {
