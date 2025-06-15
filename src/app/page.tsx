@@ -57,6 +57,14 @@ export default function DashboardPage() {
   const [lastPitStopCallParams, setLastPitStopCallParams] = useState<SuggestPitStopsInput | null>(null);
   const { toast } = useToast();
 
+  const [lastSuccessfulAiCallData, setLastSuccessfulAiCallData] = useState<{
+    lap: number;
+    tireWear: number;
+    fuel: number;
+  } | null>(null);
+  const [aiCallCoolDown, setAiCallCoolDown] = useState(false);
+
+
   useEffect(() => {
     const fetchDrivers = async () => {
       setIsLoadingDrivers(true);
@@ -162,8 +170,6 @@ export default function DashboardPage() {
         if (newMainDriver) {
           setMainDriver(newMainDriver);
         } else if (mainDriver && !newMainDriver) {
-          // If mainDriver was set but not updated (e.g. it's not in updatedDrivers anymore, which shouldn't happen here)
-          // For safety, find it in updatedDrivers
            const foundMainDriver = updatedDrivers.find(d => d.id === mainDriver.id);
            if (foundMainDriver) setMainDriver(foundMainDriver);
         }
@@ -180,37 +186,39 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [isLoadingDrivers, raceData.drivers, mainDriver, raceData.totalLaps]);
 
-  const fetchPitStopAdvice = useCallback(async (driver: Driver, currentLap: number) => {
-    if (!driver || currentLap <= 0) return;
+  const fetchPitStopAdvice = useCallback(async (driverForAdvice: Driver, currentLapForAdvice: number) => {
+    if (!driverForAdvice || currentLapForAdvice <= 0 || aiCallCoolDown) return;
 
-    const params: SuggestPitStopsInput = {
-      driverName: driver.name,
-      currentLap: currentLap,
-      tireCondition: `${driver.currentTires.type} - ${driver.currentTires.wear.toFixed(0)}% wear, ${driver.currentTires.ageLaps} Laps old`,
-      fuelLevel: parseFloat(driver.fuel.toFixed(1)),
-      racePosition: driver.position,
-      weatherConditions: raceData.weather,
-      competitorStrategies: 'Key rivals on varied strategies; one just pitted.', // Simplified for now
-    };
+    const currentTireWear = driverForAdvice.currentTires.wear;
+    const currentFuelLevel = parseFloat(driverForAdvice.fuel.toFixed(1));
 
-    // Check if call is needed
-    if (lastPitStopCallParams) {
-      const sameLap = lastPitStopCallParams.currentLap === params.currentLap;
-      const tireWearDiff = Math.abs(driver.currentTires.wear - (lastPitStopCallParams.tireCondition.match(/(\d+)% wear/)?.[1] ? parseFloat(lastPitStopCallParams.tireCondition.match(/(\d+)% wear/)![1]) : 0));
-      const fuelDiff = Math.abs(params.fuelLevel - lastPitStopCallParams.fuelLevel);
-
-      if (sameLap && tireWearDiff < 5 && fuelDiff < 5 && pitStopSuggestion) {
-        // Data hasn't changed enough on the same lap, and we have a suggestion
+    if (lastSuccessfulAiCallData && pitStopSuggestion) {
+      const { lap: prevLap, tireWear: prevTireWear, fuel: prevFuel } = lastSuccessfulAiCallData;
+      const sameLap = prevLap === currentLapForAdvice;
+      const tireWearDiff = Math.abs(currentTireWear - prevTireWear);
+      const fuelDiff = Math.abs(currentFuelLevel - prevFuel);
+      
+      if (sameLap && tireWearDiff < 10 && fuelDiff < 10) {
         return;
       }
     }
     
     setIsPitStopLoading(true);
-    setLastPitStopCallParams(params);
+    const params: SuggestPitStopsInput = {
+      driverName: driverForAdvice.name,
+      currentLap: currentLapForAdvice,
+      tireCondition: `${driverForAdvice.currentTires.type} - ${driverForAdvice.currentTires.wear.toFixed(0)}% wear, ${driverForAdvice.currentTires.ageLaps} Laps old`,
+      fuelLevel: currentFuelLevel,
+      racePosition: driverForAdvice.position,
+      weatherConditions: raceData.weather,
+      competitorStrategies: 'Key rivals on varied strategies; one just pitted.', 
+    };
+    setLastPitStopCallParams(params); 
 
     try {
       const result = await suggestPitStops(params);
       setPitStopSuggestion(result);
+      setLastSuccessfulAiCallData({ lap: currentLapForAdvice, tireWear: currentTireWear, fuel: currentFuelLevel });
     } catch (error) {
       console.error("Error fetching pit stop suggestion:", error);
       toast({
@@ -218,17 +226,29 @@ export default function DashboardPage() {
         title: "AI Pit Advisor Error",
         description: (error as Error).message || "Failed to get pit stop suggestion.",
       });
-      setPitStopSuggestion(null); // Clear previous suggestion on error
+      setPitStopSuggestion(null); 
+      
+      setAiCallCoolDown(true);
+      setTimeout(() => {
+        setAiCallCoolDown(false);
+      }, 15000); 
     } finally {
       setIsPitStopLoading(false);
     }
-  }, [raceData.weather, toast, lastPitStopCallParams, pitStopSuggestion]);
+  }, [
+    lastSuccessfulAiCallData, 
+    pitStopSuggestion, 
+    raceData.weather, 
+    toast,
+    aiCallCoolDown,
+    // setStates are stable: setLastPitStopCallParams, setIsPitStopLoading, setPitStopSuggestion, setLastSuccessfulAiCallData, setAiCallCoolDown
+  ]);
 
   useEffect(() => {
-    if (mainDriver && raceData.currentLap > 0 && !isLoadingDrivers) {
+    if (mainDriver && raceData.currentLap > 0 && !isLoadingDrivers && !isPitStopLoading && !aiCallCoolDown) {
       fetchPitStopAdvice(mainDriver, raceData.currentLap);
     }
-  }, [mainDriver, raceData.currentLap, isLoadingDrivers, fetchPitStopAdvice]);
+  }, [mainDriver, raceData.currentLap, isLoadingDrivers, isPitStopLoading, fetchPitStopAdvice, aiCallCoolDown]);
 
 
   const handleSettingsChange = (newSettings: Partial<Settings>) => {
