@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Header } from '@/components/layout/Header';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { LiveTelemetry } from '@/components/dashboard/LiveTelemetry';
@@ -9,14 +9,16 @@ import { InteractiveTrackMap } from '@/components/dashboard/InteractiveTrackMap'
 import { PitStopAdvisor } from '@/components/ai/PitStopAdvisor';
 import { CompetitorAnalyzer } from '@/components/ai/CompetitorAnalyzer';
 import { DEFAULT_SETTINGS, MOCK_RACE_DATA, DRIVER_COLORS } from '@/lib/constants';
-import type { RaceData, Settings, Driver, OpenF1Driver, TireType } from '@/lib/types';
+import type { RaceData, Settings, Driver, OpenF1Driver, TireType, SuggestPitStopsInput, SuggestPitStopsOutput } from '@/lib/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Brain, Users, MapPinIcon, ListChecks, Loader2, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { suggestPitStops } from '@/ai/flows/suggest-pit-stops';
+import { useToast } from "@/hooks/use-toast";
 
 
 const INITIAL_RACE_DATA: RaceData = {
-  drivers: [], // This will hold all drivers for context (e.g., competitor analysis)
+  drivers: [],
   totalLaps: MOCK_RACE_DATA.totalLaps,
   currentLap: MOCK_RACE_DATA.currentLap,
   trackName: MOCK_RACE_DATA.trackName,
@@ -30,9 +32,14 @@ export default function DashboardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [raceData, setRaceData] = useState<RaceData>(INITIAL_RACE_DATA);
-  const [mainDriver, setMainDriver] = useState<Driver | null>(null); // For the single focused driver
+  const [mainDriver, setMainDriver] = useState<Driver | null>(null);
   const [isLoadingDrivers, setIsLoadingDrivers] = useState(true);
   const [driverLoadError, setDriverLoadError] = useState<string | null>(null);
+
+  const [pitStopSuggestion, setPitStopSuggestion] = useState<SuggestPitStopsOutput | null>(null);
+  const [isPitStopLoading, setIsPitStopLoading] = useState(false);
+  const [lastPitStopCallParams, setLastPitStopCallParams] = useState<SuggestPitStopsInput | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     const fetchDrivers = async () => {
@@ -70,7 +77,7 @@ export default function DashboardPage() {
 
         setRaceData(prev => ({ ...prev, drivers: transformedDrivers }));
         if (transformedDrivers.length > 0) {
-          setMainDriver(transformedDrivers[0]); // Set the first driver as the main driver
+          setMainDriver(transformedDrivers[0]);
         }
       } catch (error) {
         console.error("Error fetching OpenF1 drivers:", error);
@@ -120,7 +127,6 @@ export default function DashboardPage() {
             }
         }
         
-        // Update mainDriver state if it was affected by the simulation
         if (newMainDriver) {
           setMainDriver(newMainDriver);
         }
@@ -135,6 +141,57 @@ export default function DashboardPage() {
 
     return () => clearInterval(interval);
   }, [isLoadingDrivers, raceData.drivers, mainDriver, raceData.totalLaps]);
+
+  const fetchPitStopAdvice = useCallback(async (driver: Driver, currentLap: number) => {
+    if (!driver || currentLap <= 0) return;
+
+    const params: SuggestPitStopsInput = {
+      driverName: driver.name,
+      currentLap: currentLap,
+      tireCondition: `${driver.currentTires.type} - ${driver.currentTires.wear.toFixed(0)}% wear, ${driver.currentTires.ageLaps} Laps old`,
+      fuelLevel: parseFloat(driver.fuel.toFixed(1)),
+      racePosition: driver.position,
+      weatherConditions: raceData.weather,
+      competitorStrategies: 'Key rivals on varied strategies; one just pitted.', // Simplified for now
+    };
+
+    // Check if call is needed
+    if (lastPitStopCallParams) {
+      const sameLap = lastPitStopCallParams.currentLap === params.currentLap;
+      const tireWearDiff = Math.abs(driver.currentTires.wear - (lastPitStopCallParams.tireCondition.match(/(\d+)% wear/)?.[1] ? parseFloat(lastPitStopCallParams.tireCondition.match(/(\d+)% wear/)![1]) : 0));
+      const fuelDiff = Math.abs(params.fuelLevel - lastPitStopCallParams.fuelLevel);
+
+      if (sameLap && tireWearDiff < 5 && fuelDiff < 5) {
+        // Data hasn't changed enough on the same lap
+        return;
+      }
+    }
+    
+    setIsPitStopLoading(true);
+    setLastPitStopCallParams(params);
+
+    try {
+      const result = await suggestPitStops(params);
+      setPitStopSuggestion(result);
+    } catch (error) {
+      console.error("Error fetching pit stop suggestion:", error);
+      toast({
+        variant: "destructive",
+        title: "AI Pit Advisor Error",
+        description: (error as Error).message || "Failed to get pit stop suggestion.",
+      });
+      setPitStopSuggestion(null); // Clear previous suggestion on error
+    } finally {
+      setIsPitStopLoading(false);
+    }
+  }, [raceData.weather, toast, lastPitStopCallParams]);
+
+  useEffect(() => {
+    if (mainDriver && raceData.currentLap > 0 && !isLoadingDrivers) {
+      fetchPitStopAdvice(mainDriver, raceData.currentLap);
+    }
+  }, [mainDriver, raceData.currentLap, isLoadingDrivers, fetchPitStopAdvice]);
+
 
   const handleSettingsChange = (newSettings: Partial<Settings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }));
@@ -163,9 +220,9 @@ export default function DashboardPage() {
 
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
-            <TabsTrigger value="overview" className="text-sm md:text-base"><ListChecks className="w-4 h-4 mr-2 hidden md:inline" />Telemetry</TabsTrigger>
+            <TabsTrigger value="overview" className="text-sm md:text-base"><ListChecks className="w-4 h-4 mr-2 hidden md:inline" />Telemetry & AI</TabsTrigger>
             <TabsTrigger value="map" className="text-sm md:text-base"><MapPinIcon className="w-4 h-4 mr-2 hidden md:inline" />Track Map</TabsTrigger>
-            <TabsTrigger value="pitstop" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />Pit Advisor</TabsTrigger>
+            <TabsTrigger value="pitstop" className="text-sm md:text-base"><Brain className="w-4 h-4 mr-2 hidden md:inline" />AI Pit Details</TabsTrigger>
             <TabsTrigger value="competitor" className="text-sm md:text-base"><Users className="w-4 h-4 mr-2 hidden md:inline" />Competitor AI</TabsTrigger>
           </TabsList>
           
@@ -179,7 +236,12 @@ export default function DashboardPage() {
 
           <TabsContent value="overview">
             {mainDriver ? (
-              <LiveTelemetry driver={mainDriver} settings={settings} />
+              <LiveTelemetry 
+                driver={mainDriver} 
+                settings={settings} 
+                pitStopSuggestion={pitStopSuggestion}
+                isPitStopLoading={isPitStopLoading}
+              />
             ) : (
               !driverLoadError && <p className="text-center text-muted-foreground p-8">No main driver data to display.</p>
             )}
@@ -197,9 +259,15 @@ export default function DashboardPage() {
           </TabsContent>
           <TabsContent value="pitstop">
             {mainDriver ? (
-              <PitStopAdvisor selectedDriver={mainDriver} currentLap={raceData.currentLap} />
+              <PitStopAdvisor 
+                selectedDriver={mainDriver} 
+                currentLap={raceData.currentLap}
+                pitStopSuggestion={pitStopSuggestion}
+                isPitStopLoading={isPitStopLoading}
+                lastPitStopCallParams={lastPitStopCallParams}
+               />
             ) : (
-               !driverLoadError && <p className="text-center text-muted-foreground p-8">Pit advisor unavailable without main driver data.</p>
+               !driverLoadError && <p className="text-center text-muted-foreground p-8">Pit advisor details unavailable without main driver data.</p>
             )}
           </TabsContent>
           <TabsContent value="competitor">
@@ -223,3 +291,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

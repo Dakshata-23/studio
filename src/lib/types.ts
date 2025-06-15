@@ -57,3 +57,20 @@ export interface OpenF1Driver {
   circuit_short_name?: string;
   date?: string;
 }
+
+// Copied from ai/flows/suggest-pit-stops.ts for easier import in page.tsx
+export interface SuggestPitStopsInput {
+  driverName: string;
+  currentLap: number;
+  tireCondition: string;
+  fuelLevel: number;
+  racePosition: number;
+  weatherConditions: string;
+  competitorStrategies?: string;
+}
+
+export interface SuggestPitStopsOutput {
+  suggestedPitStopLap: number;
+  reasoning: string;
+  alternativeStrategies: string;
+}
