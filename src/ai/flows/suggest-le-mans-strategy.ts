@@ -23,7 +23,7 @@ const TeamDriverStatusSchema = z.object({
   fuelLevel: z.number().min(0).max(100).describe('Current fuel level percentage (0-100).'),
   totalDriveTimeSeconds: z.number().nonnegative().describe('Total cumulative time driven by this driver in the race so far, in seconds.'),
   isCurrentlyDriving: z.boolean().describe('Whether this driver is currently in the car.'),
-  currentLap: z.number().int().positive().describe('The lap number this driver is currently on or has last completed.')
+  currentLap: z.number().int().nonnegative().describe('The lap number this driver is currently on or has last completed.') // Changed from .positive()
 });
 
 // Define the input schema for the Le Mans strategy flow
