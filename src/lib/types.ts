@@ -9,17 +9,18 @@ export interface TireStatus {
 }
 
 export interface Driver {
-  id: string;
+  id: string; // Will use driver_number from API
   name: string;
   team: string;
-  shortName: string; // 3-letter abbreviation
+  shortName: string; // 3-letter abbreviation (name_acronym from API)
   position: number;
   currentTires: TireStatus;
   lastLapTime: string | null; // e.g., "1:30.567" or null if not set
   bestLapTime: string | null;
   fuel: number; // Percentage 0-100
   pitStops: number;
-  color: string; // Hex color for UI representation
+  color: string; // Hex color for UI representation (from team_colour API)
+  driver_number: number; // From API
 }
 
 export interface RaceData {
@@ -36,4 +37,23 @@ export interface Settings {
   showFuelLevel: boolean;
   showTireWear: boolean;
   aiAssistanceLevel: 'basic' | 'advanced';
+}
+
+// For OpenF1 API response structure
+export interface OpenF1Driver {
+  session_key: number;
+  meeting_key: number;
+  broadcast_name: string;
+  country_code: string | null;
+  driver_number: number;
+  first_name: string | null;
+  full_name: string;
+  headshot_url: string | null;
+  last_name: string | null;
+  name_acronym: string;
+  team_colour: string | null;
+  team_name: string;
+  circuit_key?: number;
+  circuit_short_name?: string;
+  date?: string;
 }
